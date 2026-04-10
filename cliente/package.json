@@ -1,0 +1,10 @@
+{
+  "name": "cliente",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix barberia run dev",
+    "build": "npm --prefix barberia run build",
+    "lint": "npm --prefix barberia run lint",
+    "preview": "npm --prefix barberia run preview"
+  }
+}
