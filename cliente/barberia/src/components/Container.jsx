@@ -5,3 +5,5 @@ export default function Container({ children, className = "" }) {
     </div>
   );
 }
+
+//Mejoras aplicadas
