@@ -56,14 +56,33 @@ function msToMMSS(ms) {
 
 export default function DisplayPages({
   barbers = [],
+  branches = [],
   services = [],
   loadingCatalog = false,
   catalogError = "",
+  brandName = "",
 }) {
   const [now, setNow] = useState(() => new Date());
   const [appointments, setAppointments] = useState([]);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(true);
+  const displayBrandName = String(brandName || "").trim() || "Tu Estilo - Barbería";
+  const displayBranchId = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    const raw = new URLSearchParams(window.location.search).get("branchId");
+    if (!raw) return null;
+    const parsed = Number(raw);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  }, []);
+  const displayBranchName = useMemo(() => {
+    if (!displayBranchId) return "";
+    const row = branches.find((b) => Number(b.id) === Number(displayBranchId));
+    return String(row?.name || "").trim();
+  }, [branches, displayBranchId]);
+  const visibleBarbers = useMemo(() => {
+    if (!displayBranchId) return barbers;
+    return barbers.filter((b) => Number(b.branchId) === Number(displayBranchId));
+  }, [barbers, displayBranchId]);
 
   const serviceById = useMemo(() => {
     const m = new Map();
@@ -82,7 +101,8 @@ export default function DisplayPages({
     setLoading(true);
     try {
       const dateStr = toDateParam(new Date());
-      const rows = await apiFetch(`/appointments/display?date=${dateStr}`);
+      const branchQuery = displayBranchId ? `&branchId=${displayBranchId}` : "";
+      const rows = await apiFetch(`/appointments/display?date=${dateStr}${branchQuery}`);
       setAppointments(rows.map(mapApiAppointment));
     } catch (e) {
       setErr(e.message || "Error cargando turnos");
@@ -96,7 +116,7 @@ export default function DisplayPages({
     loadAppointments();
     const t = setInterval(loadAppointments, 10000); // cada 10s
     return () => clearInterval(t);
-  }, []);
+  }, [displayBranchId]);
 
   // Agrupar por barbero
   const apptsByBarber = useMemo(() => {
@@ -109,7 +129,7 @@ export default function DisplayPages({
       m.set(k, arr);
     }
     return m;
-  }, [appointments, barbers]);
+  }, [appointments, visibleBarbers]);
 
   function getInProgress(list) {
     return list.find((a) => a.status === "in_progress");
@@ -137,7 +157,10 @@ export default function DisplayPages({
               Turnos en vivo
             </div>
             <div className="mt-2 text-2xl text-zinc-400">
-              Tu Estilo - Barbería · {now.toLocaleDateString("es-AR")}
+              {displayBrandName}
+              {displayBranchName ? ` · ${displayBranchName}` : ""}
+              {" · "}
+              {now.toLocaleDateString("es-AR")}
             </div>
           </div>
 
@@ -175,18 +198,23 @@ export default function DisplayPages({
         {loading && !appointments.length ? (
           <div className="text-3xl text-zinc-400">Cargando turnos...</div>
         ) : null}
+        {!loading && !visibleBarbers.length ? (
+          <div className="text-2xl text-zinc-400">
+            No hay barberos activos para la sucursal seleccionada.
+          </div>
+        ) : null}
 
         <div
           className={[
             "grid gap-8",
-            barbers.length === 1
+            visibleBarbers.length === 1
               ? "grid-cols-1"
-              : barbers.length === 2
+              : visibleBarbers.length === 2
               ? "grid-cols-2"
               : "grid-cols-3",
           ].join(" ")}
         >
-          {barbers.map((b) => {
+          {visibleBarbers.map((b) => {
             const list = apptsByBarber.get(b.id) || [];
             const inProg = getInProgress(list);
             const next = getNext(list);

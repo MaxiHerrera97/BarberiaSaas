@@ -381,9 +381,11 @@ export default function App() {
             element={
               <DisplayPage
                 barbers={barbers}
+                branches={branches}
                 services={services}
                 loadingCatalog={loadingCatalog}
                 catalogError={catalogError}
+                brandName={brandName}
               />
             }
           />
