@@ -18,6 +18,51 @@ const branchesRoutes = require("./routes/branches.routes");
 const app = express();
 const serverConfig = getServerConfig();
 
+function parseOriginUrl(value) {
+  try {
+    return new URL(String(value || "").trim());
+  } catch {
+    return null;
+  }
+}
+
+function isAllowedCorsOrigin(origin, allowlist) {
+  const normalizedOrigin = String(origin || "").trim();
+  if (!normalizedOrigin) return false;
+
+  const originUrl = parseOriginUrl(normalizedOrigin);
+  if (!originUrl) return false;
+
+  return allowlist.some((entry) => {
+    const rule = String(entry || "").trim();
+    if (!rule) return false;
+
+    if (rule === normalizedOrigin) return true;
+
+    // Soporte wildcard por host para SaaS, ej:
+    // - https://*.go.hmgdev.com.ar
+    // - *.go.hmgdev.com.ar
+    if (rule.includes("*")) {
+      const protocolWildcardMatch = rule.match(/^(https?):\/\/\*\.(.+)$/i);
+      if (protocolWildcardMatch) {
+        const [, protocol, baseHost] = protocolWildcardMatch;
+        return (
+          originUrl.protocol === `${protocol.toLowerCase()}:` &&
+          originUrl.hostname.toLowerCase().endsWith(`.${baseHost.toLowerCase()}`)
+        );
+      }
+
+      const hostWildcardMatch = rule.match(/^\*\.(.+)$/i);
+      if (hostWildcardMatch) {
+        const [, baseHost] = hostWildcardMatch;
+        return originUrl.hostname.toLowerCase().endsWith(`.${baseHost.toLowerCase()}`);
+      }
+    }
+
+    return false;
+  });
+}
+
 if (serverConfig.trustProxy) {
   app.set("trust proxy", 1);
 }
@@ -33,7 +78,7 @@ app.use(
       // Si no se configuró lista, se permite todo (fallback dev)
       if (!serverConfig.corsOrigins.length) return cb(null, true);
 
-      return serverConfig.corsOrigins.includes(origin)
+      return isAllowedCorsOrigin(origin, serverConfig.corsOrigins)
         ? cb(null, true)
         : cb(new Error("CORS: origin no permitido"));
     },
