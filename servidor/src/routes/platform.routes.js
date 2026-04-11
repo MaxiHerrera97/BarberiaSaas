@@ -739,6 +739,79 @@ router.patch("/tenants/:tenantId/multi-branch", requirePlatformAccess, async (re
   }
 });
 
+router.delete("/tenants/:tenantId/permanent", requirePlatformAccess, async (req, res) => {
+  try {
+    const tenantId = Number(req.params.tenantId);
+    if (!Number.isInteger(tenantId) || tenantId <= 0) {
+      return res.status(400).json({ error: "tenantId inválido" });
+    }
+
+    const [[tenant]] = await pool.query(
+      `SELECT id, slug, name, status
+       FROM tenants
+       WHERE id = :tenantId
+       LIMIT 1`,
+      { tenantId }
+    );
+    if (!tenant) return res.status(404).json({ error: "Tenant no existe" });
+    if (String(tenant.status || "") === "active") {
+      return res.status(400).json({
+        error: "Primero inactiva el tenant antes de eliminarlo definitivamente",
+      });
+    }
+
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      // Borrado explícito por orden para evitar FK RESTRICT.
+      await conn.query(`DELETE FROM appointment_holds WHERE tenant_id = :tenantId`, { tenantId });
+      await conn.query(`DELETE FROM appointments WHERE tenant_id = :tenantId`, { tenantId });
+      await conn.query(`DELETE FROM barber_schedule_exceptions WHERE tenant_id = :tenantId`, { tenantId });
+      await conn.query(`DELETE FROM barber_business_hours WHERE tenant_id = :tenantId`, { tenantId });
+      await conn.query(`DELETE FROM users WHERE tenant_id = :tenantId`, { tenantId });
+      await conn.query(`DELETE FROM barbers WHERE tenant_id = :tenantId`, { tenantId });
+      await conn.query(`DELETE FROM services WHERE tenant_id = :tenantId`, { tenantId });
+      await conn.query(`DELETE FROM business_hours WHERE tenant_id = :tenantId`, { tenantId });
+      await conn.query(`DELETE FROM tenant_gallery WHERE tenant_id = :tenantId`, { tenantId });
+      await conn.query(`DELETE FROM tenant_settings WHERE tenant_id = :tenantId`, { tenantId });
+      await conn.query(`DELETE FROM tenant_billing_payments WHERE tenant_id = :tenantId`, { tenantId });
+      await conn.query(`DELETE FROM branches WHERE tenant_id = :tenantId`, { tenantId });
+      const [tenantDel] = await conn.query(`DELETE FROM tenants WHERE id = :tenantId`, { tenantId });
+      if (!tenantDel?.affectedRows) {
+        await conn.rollback();
+        return res.status(404).json({ error: "Tenant no existe" });
+      }
+
+      await conn.commit();
+    } catch (e) {
+      await conn.rollback();
+      throw e;
+    } finally {
+      conn.release();
+    }
+
+    await writePlatformAudit({
+      actorUsername: req.platformUser?.username || "platform",
+      action: "tenant.delete.permanent",
+      details: {
+        deletedTenantId: tenant.id,
+        deletedTenantSlug: tenant.slug,
+        deletedTenantName: tenant.name,
+      },
+    });
+
+    return res.json({
+      ok: true,
+      deletedTenantId: tenant.id,
+      deletedTenantSlug: tenant.slug,
+    });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: "Error eliminando tenant definitivamente" });
+  }
+});
+
 router.get("/tenants/:tenantId/overview", requirePlatformAccess, async (req, res) => {
   try {
     const tenantId = Number(req.params.tenantId);

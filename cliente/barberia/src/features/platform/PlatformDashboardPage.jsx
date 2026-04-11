@@ -50,6 +50,7 @@ export default function PlatformDashboardPage() {
   const [overview, setOverview] = useState(null);
   const [payingId, setPayingId] = useState(0);
   const [togglingId, setTogglingId] = useState(0);
+  const [deletingTenantId, setDeletingTenantId] = useState(0);
   const [togglingMultiBranchId, setTogglingMultiBranchId] = useState(0);
   const [removingPaymentId, setRemovingPaymentId] = useState(0);
   const [methodByTenant, setMethodByTenant] = useState({});
@@ -255,6 +256,45 @@ export default function PlatformDashboardPage() {
       setError(e.message || "No se pudo actualizar multi-sucursal");
     } finally {
       setTogglingMultiBranchId(0);
+    }
+  }
+
+  async function deleteTenantPermanent(tenant) {
+    const tenantSlug = String(tenant?.slug || "").trim();
+    const typed = window.prompt(
+      `Vas a eliminar definitivamente el tenant "${tenantSlug}". Escribí el slug para confirmar:`,
+      ""
+    );
+    if (typed === null) return;
+    if (String(typed || "").trim().toLowerCase() !== tenantSlug.toLowerCase()) {
+      setError("Confirmación inválida. No se eliminó el tenant.");
+      return;
+    }
+
+    setDeletingTenantId(tenant.id);
+    setError("");
+    try {
+      await platformFetch(`/platform/tenants/${tenant.id}/permanent`, {
+        method: "DELETE",
+      });
+      markOk(`Tenant eliminado definitivamente: ${tenant.name}`);
+      if (openTenantId === tenant.id) setOpenTenantId(0);
+      setOverviewByTenant((prev) => {
+        const next = { ...prev };
+        delete next[tenant.id];
+        return next;
+      });
+      setNewUserByTenant((prev) => {
+        const next = { ...prev };
+        delete next[tenant.id];
+        return next;
+      });
+      await refresh();
+      refreshAuditOnly();
+    } catch (e) {
+      setError(e.message || "No se pudo eliminar tenant definitivamente");
+    } finally {
+      setDeletingTenantId(0);
     }
   }
 
@@ -710,6 +750,16 @@ export default function PlatformDashboardPage() {
                     ? "Inactivar"
                     : "Activar"}
                 </button>
+
+                {tenant.status !== "active" ? (
+                  <button
+                    onClick={() => deleteTenantPermanent(tenant)}
+                    disabled={deletingTenantId === tenant.id}
+                    className="rounded-xl bg-red-600/80 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                  >
+                    {deletingTenantId === tenant.id ? "Eliminando..." : "Eliminar definitivo"}
+                  </button>
+                ) : null}
 
                 <button
                   onClick={() => toggleOverview(tenant)}
