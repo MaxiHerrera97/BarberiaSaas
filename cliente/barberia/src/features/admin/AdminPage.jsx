@@ -85,6 +85,10 @@ export default function AdminPage({
     [branches]
   );
   const [selectedBranchId, setSelectedBranchId] = useState("");
+  const [billingInfo, setBillingInfo] = useState(null);
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingError, setBillingError] = useState("");
+  const [startingCheckout, setStartingCheckout] = useState(false);
 
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -171,6 +175,56 @@ export default function AdminPage({
     loadAppointments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedBranchId, date]);
+
+  useEffect(() => {
+    let alive = true;
+    async function loadBilling() {
+      setBillingLoading(true);
+      setBillingError("");
+      try {
+        const data = await apiFetch("/billing/public/status");
+        if (!alive) return;
+        setBillingInfo(data || null);
+      } catch (e) {
+        if (!alive) return;
+        setBillingError(e.message || "No se pudo cargar estado de facturación");
+      } finally {
+        if (alive) setBillingLoading(false);
+      }
+    }
+
+    loadBilling();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  async function startMonthlyPayment() {
+    if (startingCheckout) return;
+    setStartingCheckout(true);
+    setBillingError("");
+    try {
+      const data = await apiFetch("/billing/public/mercadopago/checkout", {
+        method: "POST",
+        body: {
+          billingMonth: billingInfo?.billing?.billingMonth,
+        },
+      });
+      if (data?.alreadyPaid) {
+        const refreshed = await apiFetch("/billing/public/status");
+        setBillingInfo(refreshed || null);
+        return;
+      }
+      if (!data?.checkoutUrl) {
+        throw new Error("No se pudo generar el link de pago");
+      }
+      window.location.href = data.checkoutUrl;
+    } catch (e) {
+      setBillingError(e.message || "No se pudo iniciar el pago online");
+    } finally {
+      setStartingCheckout(false);
+    }
+  }
 
   async function logout() {
     setLoggingOut(true);
@@ -288,6 +342,45 @@ export default function AdminPage({
               Turnos por barbero (bloques de 30 min). Iniciá un corte para ver el contador.
             </p>
           </div>
+
+          {session?.role === "admin" ? (
+            <div className="rounded-2xl border border-white/10 bg-zinc-900/40 p-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="text-sm text-zinc-400">Suscripción mensual</div>
+                  <div className="mt-1 text-base font-semibold text-zinc-100">
+                    {billingLoading
+                      ? "Cargando estado..."
+                      : billingInfo?.billing?.currentMonthPaid
+                      ? "Mes pagado"
+                      : "Mes pendiente"}
+                  </div>
+                  <div className="mt-1 text-xs text-zinc-400">
+                    Mes {billingInfo?.billing?.billingMonth || "-"} · vence día{" "}
+                    {billingInfo?.billing?.dueDay || 5} · ARS{" "}
+                    {billingInfo?.billing?.monthlyFeeArs || 30000}
+                  </div>
+                </div>
+
+                {!billingInfo?.billing?.currentMonthPaid &&
+                billingInfo?.onlinePayment?.enabled ? (
+                  <button
+                    onClick={startMonthlyPayment}
+                    disabled={startingCheckout || billingLoading}
+                    className="rounded-xl bg-amber-400 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-amber-300 disabled:opacity-60"
+                  >
+                    {startingCheckout ? "Redirigiendo..." : "Pagar mes"}
+                  </button>
+                ) : null}
+              </div>
+
+              {billingError ? (
+                <div className="mt-3 rounded-xl bg-red-500/10 px-3 py-2 text-xs text-red-200 ring-1 ring-red-500/30">
+                  {billingError}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="sticky top-[74px] z-30 rounded-2xl border border-white/10 bg-zinc-950/80 p-3 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur">
             <div className="mx-auto flex w-full max-w-[980px] flex-col items-stretch gap-3 xl:flex-row xl:items-end xl:justify-center xl:gap-2">

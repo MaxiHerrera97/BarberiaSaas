@@ -14,6 +14,7 @@ const servicesRoutes = require("./routes/services.routes");
 const platformRoutes = require("./routes/platform.routes");
 const tenantConfigRoutes = require("./routes/tenant-config.routes");
 const branchesRoutes = require("./routes/branches.routes");
+const billingPublicRoutes = require("./routes/billing-public.routes");
 
 const app = express();
 const serverConfig = getServerConfig();
@@ -91,6 +92,7 @@ app.use("/uploads", express.static(path.resolve(__dirname, "..", "uploads")));
 app.get("/health", (_, res) => res.json({ ok: true }));
 
 app.use("/platform", platformRoutes);
+app.use("/billing", billingPublicRoutes);
 app.use(resolveTenant);
 app.use("/auth", authRoutes);
 app.use("/barbers", barbersRoutes);

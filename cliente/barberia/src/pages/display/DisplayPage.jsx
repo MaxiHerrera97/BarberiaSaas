@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useParams, useLocation } from "react-router-dom";
 import { apiFetch } from "../../lib/api";
 import { formatTime, parseMySQLDateTimeLocal } from "../../lib/time";
 import { maskNameOptional } from "./display.utils";
@@ -62,23 +63,42 @@ export default function DisplayPages({
   catalogError = "",
   brandName = "",
 }) {
+  const { branchSlug = "" } = useParams();
+  const location = useLocation();
   const [now, setNow] = useState(() => new Date());
   const [appointments, setAppointments] = useState([]);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(true);
   const displayBrandName = String(brandName || "").trim() || "Tu Estilo - Barbería";
-  const displayBranchId = useMemo(() => {
-    if (typeof window === "undefined") return null;
-    const raw = new URLSearchParams(window.location.search).get("branchId");
+  const normalizedBranchSlug = String(branchSlug || "").trim().toLowerCase();
+  const queryBranchId = useMemo(() => {
+    const raw = new URLSearchParams(location.search).get("branchId");
     if (!raw) return null;
     const parsed = Number(raw);
     return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-  }, []);
+  }, [location.search]);
+  const branchFromSlug = useMemo(() => {
+    if (!normalizedBranchSlug) return null;
+    return (
+      branches.find((b) => String(b?.slug || "").trim().toLowerCase() === normalizedBranchSlug) ||
+      null
+    );
+  }, [branches, normalizedBranchSlug]);
+  const principalBranch = useMemo(() => {
+    return branches.find((b) => String(b?.slug || "").trim().toLowerCase() === "principal") || null;
+  }, [branches]);
+  const displayBranchId = useMemo(() => {
+    if (branchFromSlug?.id) return Number(branchFromSlug.id);
+    if (queryBranchId) return queryBranchId;
+    if (principalBranch?.id) return Number(principalBranch.id);
+    return null;
+  }, [branchFromSlug, queryBranchId, principalBranch]);
   const displayBranchName = useMemo(() => {
-    if (!displayBranchId) return "";
-    const row = branches.find((b) => Number(b.id) === Number(displayBranchId));
+    const row =
+      branchFromSlug ||
+      branches.find((b) => Number(b.id) === Number(displayBranchId));
     return String(row?.name || "").trim();
-  }, [branches, displayBranchId]);
+  }, [branchFromSlug, branches, displayBranchId]);
   const visibleBarbers = useMemo(() => {
     if (!displayBranchId) return barbers;
     return barbers.filter((b) => Number(b.branchId) === Number(displayBranchId));
@@ -177,6 +197,12 @@ export default function DisplayPages({
 
       {/* BODY centrado y grande */}
       <main className="mx-auto w-full max-w-[1600px] px-8 py-10">
+        {normalizedBranchSlug && !branchFromSlug ? (
+          <div className="mb-8 rounded-2xl bg-red-500/10 ring-1 ring-red-500/30 px-6 py-4 text-2xl text-red-200">
+            Sucursal no encontrada: {normalizedBranchSlug}
+          </div>
+        ) : null}
+
         {loadingCatalog && !barbers.length ? (
           <div className="mb-8 rounded-2xl bg-zinc-900/40 ring-1 ring-white/10 px-6 py-4 text-2xl text-zinc-400">
             Cargando barberos y servicios...

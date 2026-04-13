@@ -1,6 +1,6 @@
 
 import { useEffect, useState } from "react";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, useLocation } from "react-router-dom";
 
 import Navbar from "./components/Navbar";
 import HeroSlider from "./features/landing/HeroSlider";
@@ -102,7 +102,37 @@ function WhatsAppIcon() {
   );
 }
 
-function SuspendedPage({ message }) {
+function SuspendedPage({ message, billing }) {
+  const [paying, setPaying] = useState(false);
+  const [payError, setPayError] = useState("");
+
+  async function handlePayNow() {
+    if (paying) return;
+    setPaying(true);
+    setPayError("");
+    try {
+      const data = await apiFetch("/billing/public/mercadopago/checkout", {
+        method: "POST",
+        body: {
+          billingMonth: billing?.billingMonth,
+        },
+      });
+
+      if (data?.alreadyPaid) {
+        window.location.reload();
+        return;
+      }
+      if (!data?.checkoutUrl) {
+        throw new Error("No se pudo generar el link de pago");
+      }
+      window.location.href = data.checkoutUrl;
+    } catch (e) {
+      setPayError(e.message || "No se pudo iniciar el pago online");
+    } finally {
+      setPaying(false);
+    }
+  }
+
   return (
     <div className="grid min-h-screen place-items-center bg-zinc-950 px-4 text-zinc-100">
       <div className="w-full max-w-3xl rounded-3xl border border-white/10 bg-zinc-900/60 p-8 text-center shadow-2xl shadow-black/50 md:p-12">
@@ -113,6 +143,24 @@ function SuspendedPage({ message }) {
         <p className="mx-auto mt-4 max-w-2xl text-lg text-zinc-200 md:text-2xl">
           {message || "Comunicate con tu administrador para dar de alta."}
         </p>
+
+        {billing?.canPayOnline ? (
+          <div className="mt-8">
+            <button
+              onClick={handlePayNow}
+              disabled={paying}
+              className="rounded-xl bg-amber-400 px-5 py-3 text-sm font-semibold text-zinc-950 hover:bg-amber-300 disabled:opacity-60"
+            >
+              {paying ? "Redirigiendo al pago..." : "Pagar mes ahora"}
+            </button>
+          </div>
+        ) : null}
+
+        {payError ? (
+          <div className="mx-auto mt-4 max-w-xl rounded-xl bg-red-500/10 px-4 py-3 text-sm text-red-200 ring-1 ring-red-500/30">
+            {payError}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -196,6 +244,7 @@ function Landing({
 
 /* ---------- APP ---------- */
 export default function App() {
+  const location = useLocation();
   const [openBooking, setOpenBooking] = useState(false);
   const [barbers, setBarbers] = useState(fallbackBarbers);
   const [branches, setBranches] = useState([]);
@@ -215,6 +264,7 @@ export default function App() {
   const [tenantSuspendedMessage, setTenantSuspendedMessage] = useState(
     "Comunicate con tu administrador para dar de alta."
   );
+  const [tenantSuspendedBilling, setTenantSuspendedBilling] = useState(null);
 
   useEffect(() => {
     let alive = true;
@@ -223,6 +273,7 @@ export default function App() {
       setLoadingCatalog(true);
       setCatalogError("");
       setTenantSuspended(false);
+      setTenantSuspendedBilling(null);
 
       try {
         const [barbersData, branchesData, servicesData, tenantConfig] = await Promise.all([
@@ -269,6 +320,7 @@ export default function App() {
         if (e?.code === "TENANT_SUSPENDED" || e?.status === 403) {
           setTenantSuspended(true);
           setTenantSuspendedMessage(buildSuspendedMessageFromError(e));
+          setTenantSuspendedBilling(e?.payload?.billing || null);
           setCatalogError("");
           return;
         }
@@ -284,8 +336,10 @@ export default function App() {
     };
   }, []);
 
-  if (tenantSuspended) {
-    return <SuspendedPage message={tenantSuspendedMessage} />;
+  const authRoute = location.pathname === "/login";
+  const platformRoute = location.pathname.startsWith("/platform");
+  if (tenantSuspended && !authRoute && !platformRoute) {
+    return <SuspendedPage message={tenantSuspendedMessage} billing={tenantSuspendedBilling} />;
   }
 
   return (
@@ -309,6 +363,7 @@ export default function App() {
         <Route path="/admin/ranking" element={null} /> {/* ✅ NUEVO */}
         <Route path="/admin/settings" element={null} />
         <Route path="/display" element={null} />
+        <Route path="/display/:branchSlug" element={null} />
         <Route path="/platform/login" element={null} />
         <Route path="/platform" element={null} />
       </Routes>
@@ -378,6 +433,20 @@ export default function App() {
           {/* ✅ DISPLAY (PANTALLA TV) */}
           <Route
             path="/display"
+            element={
+              <DisplayPage
+                barbers={barbers}
+                branches={branches}
+                services={services}
+                loadingCatalog={loadingCatalog}
+                catalogError={catalogError}
+                brandName={brandName}
+              />
+            }
+          />
+
+          <Route
+            path="/display/:branchSlug"
             element={
               <DisplayPage
                 barbers={barbers}

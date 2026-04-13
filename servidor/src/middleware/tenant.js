@@ -4,6 +4,7 @@ const { getTenantSlugFromHost } = require("../utils/tenant");
 const {
   BILLING_MONTHLY_FEE_ARS,
   BILLING_WINDOW_END_DAY,
+  PAYMENT_METHODS,
   getCurrentBillingContext,
 } = require("../utils/billing");
 
@@ -79,6 +80,8 @@ async function resolveTenant(req, res, next) {
             monthlyFeeArs: BILLING_MONTHLY_FEE_ARS,
             billingMonth: billingContext.billingMonth,
             dueDay: BILLING_WINDOW_END_DAY,
+            acceptedMethods: PAYMENT_METHODS,
+            canPayOnline: !!serverConfig.mpAccessToken,
           },
         });
       }

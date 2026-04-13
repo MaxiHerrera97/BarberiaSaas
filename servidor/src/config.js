@@ -56,6 +56,8 @@ function getServerConfig() {
     r2PublicBaseUrl: process.env.R2_PUBLIC_BASE_URL || "",
     r2Region: process.env.R2_REGION || "auto",
     r2KeyPrefix: process.env.R2_KEY_PREFIX || "",
+    mpAccessToken: process.env.MP_ACCESS_TOKEN || "",
+    publicApiBaseUrl: process.env.PUBLIC_API_BASE_URL || "",
   };
 }
 
