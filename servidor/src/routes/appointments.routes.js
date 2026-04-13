@@ -864,6 +864,34 @@ router.get("/ranking", auth, async (req, res) => {
       });
     }
 
+    // 5) Top clientes del mes (global tenant/branch; para barber se restringe a su barber_id)
+    const [topClientsRows] = await pool.query(
+      `
+      SELECT
+        a.customer_phone,
+        SUBSTRING_INDEX(
+          GROUP_CONCAT(a.customer_name ORDER BY a.start_at DESC SEPARATOR '||'),
+          '||', 1
+        ) AS customer_name,
+        COUNT(*) AS visits,
+        COALESCE(SUM(COALESCE(a.service_price_ars_snapshot, s.price_ars)), 0) AS spent_ars
+      FROM appointments a
+      LEFT JOIN services s ON s.id = a.service_id
+      WHERE a.tenant_id = :tenantId
+        AND a.status = 'done'
+        AND a.start_at >= :start
+        AND a.start_at < :end
+        ${barberFilter}
+        ${branchFilter}
+        AND a.customer_phone IS NOT NULL
+        AND a.customer_phone <> ''
+      GROUP BY a.customer_phone
+      ORDER BY visits DESC, spent_ars DESC, customer_name ASC
+      LIMIT 20
+      `,
+      queryParams
+    );
+
     res.json({
       year,
       month,
@@ -884,6 +912,12 @@ router.get("/ranking", auth, async (req, res) => {
       clientsByBarber, // ✅ NUEVO
       servicesByBarber,
       history,
+      topClients: topClientsRows.map((r) => ({
+        customer_phone: r.customer_phone,
+        customer_name: r.customer_name,
+        visits: Number(r.visits) || 0,
+        spent_ars: Number(r.spent_ars) || 0,
+      })),
     });
   } catch (e) {
     console.error(e);

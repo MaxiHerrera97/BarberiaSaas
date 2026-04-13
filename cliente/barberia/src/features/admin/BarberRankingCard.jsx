@@ -22,6 +22,7 @@ export default function BarberRankingCard() {
   const [servicesByBarber, setServicesByBarber] = useState({});
   const [summary, setSummary] = useState({ cuts: 0, revenue_ars: 0, commission_ars: 0 });
   const [history, setHistory] = useState([]);
+  const [topClients, setTopClients] = useState([]);
 
   // expand/collapse por barbero
   const [openBarber, setOpenBarber] = useState(null);
@@ -53,6 +54,7 @@ export default function BarberRankingCard() {
             commission_ars: Number(data?.summary?.commission_ars || 0),
           });
           setHistory(Array.isArray(data?.history) ? data.history : []);
+          setTopClients(Array.isArray(data?.topClients) ? data.topClients : []);
           setOpenBarber(null);
         }
       } catch (e) {
@@ -62,6 +64,7 @@ export default function BarberRankingCard() {
           setServicesByBarber({});
           setSummary({ cuts: 0, revenue_ars: 0, commission_ars: 0 });
           setHistory([]);
+          setTopClients([]);
           setOpenBarber(null);
           setErrorMsg(e?.message || "No se pudo cargar el ranking.");
         }
@@ -318,6 +321,44 @@ export default function BarberRankingCard() {
                     </Fragment>
                   );
                 })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-5 rounded-xl bg-zinc-900/45 p-3 ring-1 ring-white/10">
+        <div className="mb-2 text-sm font-semibold text-zinc-200">Top clientes del mes</div>
+        {topClients.length === 0 ? (
+          <div className="text-sm text-zinc-400">Sin clientes finalizados este mes.</div>
+        ) : (
+          <div className="overflow-x-auto rounded-xl ring-1 ring-white/10">
+            <table className="min-w-[560px] w-full text-sm">
+              <thead className="bg-white/5 text-zinc-300">
+                <tr>
+                  <th className="px-3 py-2 text-left">#</th>
+                  <th className="px-3 py-2 text-left">Cliente</th>
+                  <th className="px-3 py-2 text-left">Teléfono</th>
+                  <th className="px-3 py-2 text-right">Visitas</th>
+                  <th className="px-3 py-2 text-right">Total gastado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {topClients.map((c, idx) => (
+                  <tr key={`top-${c.customer_phone}-${idx}`} className="border-t border-white/10">
+                    <td className="px-3 py-2 text-zinc-400">{idx + 1}</td>
+                    <td className="px-3 py-2 text-zinc-200">{c.customer_name}</td>
+                    <td className="px-3 py-2 text-zinc-400">{c.customer_phone}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-amber-300">{c.visits}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-emerald-300">
+                      {new Intl.NumberFormat("es-AR", {
+                        style: "currency",
+                        currency: "ARS",
+                        maximumFractionDigits: 0,
+                      }).format(Number(c.spent_ars || 0))}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
