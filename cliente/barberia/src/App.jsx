@@ -168,6 +168,15 @@ function SuspendedPage({ message, billing }) {
 
 function buildSuspendedMessageFromError(err) {
   const fallback = "Comunicate con tu administrador para dar de alta.";
+  const trial = err?.payload?.trial;
+  if (trial?.expired) {
+    const billing = err?.payload?.billing || {};
+    const fee = Number(billing.monthlyFeeArs) || 30000;
+    const methods = Array.isArray(billing.acceptedMethods) ? billing.acceptedMethods : [];
+    const methodsText = methods.length ? methods.join(", ") : "transferencia, mercado_pago, efectivo";
+    return `Tu período de prueba de 7 días finalizó. Para continuar, aboná ARS ${fee} (medios: ${methodsText}) o comunicate con tu administrador.`;
+  }
+
   const billing = err?.payload?.billing;
   if (!billing) return err?.message || fallback;
 

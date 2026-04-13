@@ -331,7 +331,9 @@ router.post("/tenants/onboard", requirePlatformAccess, async (req, res) => {
 router.get("/tenants", requirePlatformAccess, async (req, res) => {
   try {
     const [tenants] = await pool.query(
-      `SELECT id, slug, name, plan, status, timezone, multi_branch_enabled, created_at
+      `SELECT id, slug, name, plan, status, timezone,
+              trial_active, trial_starts_at, trial_ends_at,
+              multi_branch_enabled, created_at
        FROM tenants
        ORDER BY id ASC`
     );
@@ -366,6 +368,11 @@ router.get("/tenants", requirePlatformAccess, async (req, res) => {
       paymentRows.push({
         ...tenant,
         multiBranchEnabled: Number(tenant.multi_branch_enabled || 0) === 1,
+        trial: {
+          enabled: Number(tenant.trial_active || 0) === 1,
+          startedAt: tenant.trial_starts_at || null,
+          endsAt: tenant.trial_ends_at || null,
+        },
         billingMonth: billing.billingMonth,
         currentMonthPaid: !!payment,
         suspendedByPayment: billing.isPastDue && !payment,
@@ -396,7 +403,9 @@ router.get("/billing/overview", requirePlatformAccess, async (req, res) => {
     }
 
     const [tenants] = await pool.query(
-      `SELECT id, slug, name, plan, status, timezone, multi_branch_enabled
+      `SELECT id, slug, name, plan, status, timezone,
+              trial_active, trial_starts_at, trial_ends_at,
+              multi_branch_enabled
        FROM tenants
        ORDER BY id ASC`
     );
@@ -439,6 +448,11 @@ router.get("/billing/overview", requirePlatformAccess, async (req, res) => {
         status: tenant.status,
         timezone: tenant.timezone,
         multiBranchEnabled: Number(tenant.multi_branch_enabled || 0) === 1,
+        trial: {
+          enabled: Number(tenant.trial_active || 0) === 1,
+          startedAt: tenant.trial_starts_at || null,
+          endsAt: tenant.trial_ends_at || null,
+        },
         billingMonth,
         currentMonthPaid: isPaid,
         suspendedByPayment,
@@ -855,6 +869,77 @@ router.patch("/tenants/:tenantId/status", requirePlatformAccess, async (req, res
   }
 });
 
+router.patch("/tenants/:tenantId/trial", requirePlatformAccess, async (req, res) => {
+  try {
+    const tenantId = Number(req.params.tenantId);
+    if (!Number.isInteger(tenantId) || tenantId <= 0) {
+      return res.status(400).json({ error: "tenantId inválido" });
+    }
+
+    const enabled = req.body?.enabled !== false;
+    const daysRaw = Number(req.body?.days);
+    const trialDays = Number.isInteger(daysRaw) ? Math.min(Math.max(daysRaw, 1), 30) : 7;
+
+    if (enabled) {
+      const [upd] = await pool.query(
+        `UPDATE tenants
+         SET trial_active = 1,
+             trial_starts_at = UTC_TIMESTAMP(),
+             trial_ends_at = DATE_ADD(UTC_TIMESTAMP(), INTERVAL :trialDays DAY),
+             status = 'active'
+         WHERE id = :tenantId`,
+        { tenantId, trialDays }
+      );
+      if (!upd.affectedRows) return res.status(404).json({ error: "Tenant no existe" });
+
+      await writePlatformAudit({
+        actorUsername: req.platformUser?.username || "platform",
+        action: "tenant.trial.activate",
+        tenantId,
+        details: { trialDays },
+      });
+    } else {
+      const [upd] = await pool.query(
+        `UPDATE tenants
+         SET trial_active = 0,
+             trial_starts_at = NULL,
+             trial_ends_at = NULL
+         WHERE id = :tenantId`,
+        { tenantId }
+      );
+      if (!upd.affectedRows) return res.status(404).json({ error: "Tenant no existe" });
+
+      await writePlatformAudit({
+        actorUsername: req.platformUser?.username || "platform",
+        action: "tenant.trial.disable",
+        tenantId,
+      });
+    }
+
+    const [[tenant]] = await pool.query(
+      `SELECT id, trial_active, trial_starts_at, trial_ends_at, status
+       FROM tenants
+       WHERE id = :tenantId
+       LIMIT 1`,
+      { tenantId }
+    );
+
+    return res.json({
+      ok: true,
+      tenantId,
+      status: tenant?.status || "inactive",
+      trial: {
+        enabled: Number(tenant?.trial_active || 0) === 1,
+        startedAt: tenant?.trial_starts_at || null,
+        endsAt: tenant?.trial_ends_at || null,
+      },
+    });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: "Error actualizando prueba gratuita" });
+  }
+});
+
 router.patch("/tenants/:tenantId/multi-branch", requirePlatformAccess, async (req, res) => {
   try {
     const tenantId = Number(req.params.tenantId);
@@ -970,7 +1055,9 @@ router.get("/tenants/:tenantId/overview", requirePlatformAccess, async (req, res
     }
 
     const [[tenant]] = await pool.query(
-      `SELECT id, slug, name, plan, status, timezone, multi_branch_enabled, created_at
+      `SELECT id, slug, name, plan, status, timezone,
+              trial_active, trial_starts_at, trial_ends_at,
+              multi_branch_enabled, created_at
        FROM tenants
        WHERE id = :tenantId
        LIMIT 1`,
@@ -1074,6 +1161,11 @@ router.get("/tenants/:tenantId/overview", requirePlatformAccess, async (req, res
       tenant: {
         ...tenant,
         multiBranchEnabled: Number(tenant.multi_branch_enabled || 0) === 1,
+        trial: {
+          enabled: Number(tenant.trial_active || 0) === 1,
+          startedAt: tenant.trial_starts_at || null,
+          endsAt: tenant.trial_ends_at || null,
+        },
       },
       settings: settings || null,
       businessHours: hours,

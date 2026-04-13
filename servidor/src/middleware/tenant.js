@@ -29,7 +29,15 @@ async function resolveTenant(req, res, next) {
     const tenantSlug = headerSlug || hostSlug || serverConfig.defaultTenantSlug;
 
     const [rows] = await pool.query(
-      `SELECT id, slug, name, plan, status, timezone, multi_branch_enabled
+      `SELECT id, slug, name, plan, status, timezone, multi_branch_enabled,
+              trial_active, trial_starts_at, trial_ends_at,
+              CASE
+                WHEN trial_active = 1
+                 AND trial_ends_at IS NOT NULL
+                 AND UTC_TIMESTAMP() > trial_ends_at
+                THEN 1
+                ELSE 0
+              END AS trial_expired
        FROM tenants
        WHERE slug = :slug
        LIMIT 1`,
@@ -41,10 +49,43 @@ async function resolveTenant(req, res, next) {
     }
 
     const tenant = rows[0];
+    const trialExpired = Number(tenant.trial_expired || 0) === 1;
+
+    if (tenant.status === "active" && trialExpired) {
+      await pool.query(
+        `UPDATE tenants
+         SET status = 'inactive'
+         WHERE id = :tenantId
+           AND status = 'active'`,
+        { tenantId: tenant.id }
+      );
+      tenant.status = "inactive";
+    }
+
     if (tenant.status !== "active") {
+      if (!trialExpired) {
+        return res.status(403).json({
+          code: "TENANT_SUSPENDED",
+          error: "Aplicacion suspendida, comunicate con tu administrador para dar de alta.",
+        });
+      }
+
       return res.status(403).json({
-        code: "TENANT_SUSPENDED",
-        error: "Aplicacion suspendida, comunicate con tu administrador para dar de alta.",
+        code: "TENANT_TRIAL_EXPIRED",
+        error:
+          "Tu período de prueba finalizó. Realiza el pago para continuar o comunicate con tu administrador.",
+        trial: {
+          enabled: Number(tenant.trial_active || 0) === 1,
+          expired: trialExpired,
+          startedAt: tenant.trial_starts_at || null,
+          endsAt: tenant.trial_ends_at || null,
+        },
+        billing: {
+          monthlyFeeArs: BILLING_MONTHLY_FEE_ARS,
+          dueDay: BILLING_WINDOW_END_DAY,
+          acceptedMethods: PAYMENT_METHODS,
+          canPayOnline: !!serverConfig.mpAccessToken,
+        },
       });
     }
 

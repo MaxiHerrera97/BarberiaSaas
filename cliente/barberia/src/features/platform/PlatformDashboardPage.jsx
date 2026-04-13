@@ -64,6 +64,7 @@ export default function PlatformDashboardPage() {
   const [billingMetrics, setBillingMetrics] = useState(null);
   const [payingId, setPayingId] = useState(0);
   const [togglingId, setTogglingId] = useState(0);
+  const [activatingTrialId, setActivatingTrialId] = useState(0);
   const [deletingTenantId, setDeletingTenantId] = useState(0);
   const [togglingMultiBranchId, setTogglingMultiBranchId] = useState(0);
   const [removingPaymentId, setRemovingPaymentId] = useState(0);
@@ -300,6 +301,28 @@ export default function PlatformDashboardPage() {
       setError(e.message || "No se pudo cambiar estado");
     } finally {
       setTogglingId(0);
+    }
+  }
+
+  async function activateTrial(tenant) {
+    const yes = window.confirm(
+      `Se activará una prueba gratuita de 7 días para ${tenant.name}. ¿Continuar?`
+    );
+    if (!yes) return;
+
+    setActivatingTrialId(tenant.id);
+    setError("");
+    try {
+      await platformFetch(`/platform/tenants/${tenant.id}/trial`, {
+        method: "PATCH",
+        body: { enabled: true, days: 7 },
+      });
+      markOk(`Prueba gratuita activada por 7 días para ${tenant.name}`);
+      await refresh();
+    } catch (e) {
+      setError(e.message || "No se pudo activar la prueba gratuita");
+    } finally {
+      setActivatingTrialId(0);
     }
   }
 
@@ -859,6 +882,12 @@ export default function PlatformDashboardPage() {
                     {tenant.multiBranchEnabled ? "habilitado" : "deshabilitado"}
                   </div>
                   <div className="mt-1 text-xs text-zinc-500">
+                    Prueba:{" "}
+                    {tenant?.trial?.enabled
+                      ? `activa hasta ${tenant?.trial?.endsAt || "-"}`
+                      : "no activa"}
+                  </div>
+                  <div className="mt-1 text-xs text-zinc-500">
                     URL: {buildTenantPublicUrl(tenant.slug, firstBaseDomain)}
                   </div>
                 </div>
@@ -936,6 +965,18 @@ export default function PlatformDashboardPage() {
                     : tenant.status === "active"
                     ? "Inactivar"
                     : "Activar"}
+                </button>
+
+                <button
+                  onClick={() => activateTrial(tenant)}
+                  disabled={activatingTrialId === tenant.id}
+                  className="rounded-xl bg-zinc-800 px-4 py-2 text-sm font-semibold text-zinc-100 disabled:opacity-60"
+                >
+                  {activatingTrialId === tenant.id
+                    ? "Activando..."
+                    : tenant?.trial?.enabled
+                    ? "Reiniciar prueba 7 días"
+                    : "Activar prueba 7 días"}
                 </button>
 
                 {tenant.status !== "active" ? (
