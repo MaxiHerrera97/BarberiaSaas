@@ -623,7 +623,7 @@ export default function AdminPage({
         )}
 
         <div className="mt-10 rounded-2xl bg-zinc-900/40 ring-1 ring-white/10 p-4 text-sm text-zinc-400">
-          Este panel carga turnos reales desde el backend y permite cambiar estado (pending/in_progress/done/etc.).
+          Este panel carga turnos reales y permite actualizar su estado en forma simple.
         </div>
       </Container>
     </div>

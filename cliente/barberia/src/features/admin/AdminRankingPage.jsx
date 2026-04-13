@@ -81,10 +81,10 @@ export default function AdminRankingPage() {
         <div className="mt-6 rounded-2xl bg-zinc-900/40 ring-1 ring-white/10 p-4 text-sm text-zinc-400">
           {session?.role === "barber" ? (
             <div className="mb-2 rounded-lg bg-zinc-900/70 px-3 py-2 text-xs text-zinc-300 ring-1 ring-white/10">
-              Vista barbero: se muestran solo tus cortes finalizados.
+              Vista barbero: se muestran solo tus turnos finalizados.
             </div>
           ) : null}
-          * Cuenta servicios finalizados (status <span className="text-zinc-200">done</span>).  
+          * Se cuentan solo los turnos finalizados.  
           * Muestra facturación estimada y detalle de servicios por barbero.  
           * Calcula comisión estimada según el % configurado por barbero.  
           * Incluye historial de los últimos 6 meses.
