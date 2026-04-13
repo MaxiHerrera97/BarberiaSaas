@@ -81,6 +81,7 @@ export default function AdminSettingsPage() {
   const [draggingId, setDraggingId] = useState(null);
 
   const [newBarber, setNewBarber] = useState("");
+  const [newBarberCommissionPct, setNewBarberCommissionPct] = useState("0");
   const [newBarberBranchId, setNewBarberBranchId] = useState("");
   const [barbersBranchFilter, setBarbersBranchFilter] = useState("all");
   const [scheduleBranchFilter, setScheduleBranchFilter] = useState("all");
@@ -109,6 +110,7 @@ export default function AdminSettingsPage() {
     close2: "",
     note: "",
   });
+  const [barberCommissionDraft, setBarberCommissionDraft] = useState({});
 
   async function reloadAll() {
     setLoading(true);
@@ -137,6 +139,11 @@ export default function AdminSettingsPage() {
         if (firstActive) setNewBarberBranchId(String(firstActive.id));
       }
       setBarbers(Array.isArray(bs) ? bs : []);
+      setBarberCommissionDraft(
+        Object.fromEntries(
+          (Array.isArray(bs) ? bs : []).map((b) => [b.id, String(Number(b.commissionPct || 0))])
+        )
+      );
       setServices(Array.isArray(ss) ? ss : []);
       const incomingSchedules = Array.isArray(barberScheduleResp?.schedules)
         ? barberScheduleResp.schedules
@@ -297,10 +304,12 @@ export default function AdminSettingsPage() {
         method: "POST",
         body: {
           name: newBarber.trim(),
+          commissionPct: Number(newBarberCommissionPct || 0),
           branchId: newBarberBranchId ? Number(newBarberBranchId) : undefined,
         },
       });
       setNewBarber("");
+      setNewBarberCommissionPct("0");
       await reloadAll();
       markOk("Barbero agregado");
     } catch (e) {
@@ -317,6 +326,25 @@ export default function AdminSettingsPage() {
       markOk("Barbero desactivado");
     } catch (e) {
       setError(e.message || "No se pudo desactivar barbero");
+    }
+  }
+
+  async function saveBarberCommission(id) {
+    setError("");
+    try {
+      const value = Number(barberCommissionDraft[id] || 0);
+      if (!Number.isFinite(value) || value < 0 || value > 100) {
+        setError("Comisión inválida (0 a 100)");
+        return;
+      }
+      await apiFetch(`/barbers/${id}`, {
+        method: "PATCH",
+        body: { commissionPct: value },
+      });
+      await reloadAll();
+      markOk("Comisión actualizada");
+    } catch (e) {
+      setError(e.message || "No se pudo actualizar comisión");
     }
   }
 
@@ -1061,6 +1089,16 @@ export default function AdminSettingsPage() {
               value={newBarber}
               onChange={(e) => setNewBarber(e.target.value)}
             />
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              className="rounded-xl bg-zinc-900 px-3 py-2 sm:w-44"
+              placeholder="% comisión"
+              value={newBarberCommissionPct}
+              onChange={(e) => setNewBarberCommissionPct(e.target.value)}
+            />
             {multiBranchEnabled ? (
               <select
                 value={newBarberBranchId}
@@ -1093,19 +1131,44 @@ export default function AdminSettingsPage() {
                   key={b.id}
                   className="flex flex-col items-start gap-2 rounded-xl bg-zinc-900/80 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
                 >
-                  <div>
+                  <div className="w-full">
                     <div>{b.name}</div>
                     <div className="text-xs text-zinc-400">
                       Sucursal:{" "}
                       {branches.find((x) => Number(x.id) === Number(b.branchId))?.name || "-"}
                     </div>
+                    <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <div className="text-xs text-zinc-400 sm:min-w-28">Comisión (%)</div>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        className="rounded-lg bg-zinc-950 px-2 py-1 text-sm ring-1 ring-white/10 sm:w-32"
+                        value={barberCommissionDraft[b.id] ?? String(Number(b.commissionPct || 0))}
+                        onChange={(e) =>
+                          setBarberCommissionDraft((prev) => ({
+                            ...prev,
+                            [b.id]: e.target.value,
+                          }))
+                        }
+                      />
+                      <button
+                        onClick={() => saveBarberCommission(b.id)}
+                        className="rounded-lg bg-zinc-800 px-3 py-1 text-xs text-zinc-100 hover:bg-zinc-700"
+                      >
+                        Guardar %
+                      </button>
+                    </div>
                   </div>
-                  <button
-                    onClick={() => removeBarber(b.id)}
-                    className="rounded-lg bg-red-500/20 px-3 py-1 text-xs text-red-200 hover:bg-red-500/30"
-                  >
-                    Eliminar
-                  </button>
+                  <div className="w-full sm:w-auto">
+                    <button
+                      onClick={() => removeBarber(b.id)}
+                      className="rounded-lg bg-red-500/20 px-3 py-1 text-xs text-red-200 hover:bg-red-500/30"
+                    >
+                      Eliminar
+                    </button>
+                  </div>
                 </div>
               ))
             ) : (

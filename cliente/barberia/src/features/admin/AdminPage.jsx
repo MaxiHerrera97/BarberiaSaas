@@ -53,6 +53,9 @@ function mapApiAppointment(r) {
     id: String(r.id),
     barberId: r.barber_id,
     serviceId: r.service_id,
+    serviceNameSnapshot: String(r.service_name_snapshot || "").trim(),
+    servicePriceSnapshot: Number(r.service_price_ars_snapshot || 0) || null,
+    serviceDurationSnapshot: Number(r.service_duration_min_snapshot || 0) || null,
     customerName: r.customer_name,
     customerPhone: r.customer_phone || "",
     startAt: start.toISOString(),
@@ -527,9 +530,13 @@ export default function AdminPage({
                               <>
                                 <div className="mt-1 font-semibold">{appt.customerName}</div>
                                 <div className="text-xs text-zinc-400">
-                                  {serviceById.get(appt.serviceId)?.name ?? "Servicio"}
+                                  {appt.serviceNameSnapshot ||
+                                    serviceById.get(appt.serviceId)?.name ||
+                                    "Servicio"}
                                   {" · "}
-                                  {serviceById.get(appt.serviceId)?.durationMin ?? 30} min
+                                  {appt.serviceDurationSnapshot ||
+                                    serviceById.get(appt.serviceId)?.durationMin ||
+                                    30} min
                                 </div>
                               </>
                             ) : (

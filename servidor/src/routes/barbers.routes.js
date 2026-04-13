@@ -17,7 +17,7 @@ router.get("/", async (req, res) => {
       return res.status(400).json({ error: "branchId inválido" });
     }
 
-    let sql = `SELECT id, branch_id AS branchId, full_name AS name, 'Barbero' AS role
+    let sql = `SELECT id, branch_id AS branchId, full_name AS name, commission_pct AS commissionPct, 'Barbero' AS role
        FROM barbers
        WHERE is_active = 1 AND tenant_id = :tenantId`;
     const params = { tenantId: req.tenant.id };
@@ -41,6 +41,10 @@ router.get("/", async (req, res) => {
 router.post("/", auth, requireRole("admin"), async (req, res) => {
   try {
     const name = String(req.body?.name || "").trim();
+    const commissionPctRaw = Number(req.body?.commissionPct ?? 0);
+    const commissionPct = Number.isFinite(commissionPctRaw)
+      ? Math.min(Math.max(commissionPctRaw, 0), 100)
+      : 0;
     let branchId = req.body?.branchId === undefined ? null : Number(req.body?.branchId);
     if (!name) return res.status(400).json({ error: "name requerido" });
 
@@ -75,9 +79,9 @@ router.post("/", auth, requireRole("admin"), async (req, res) => {
     }
 
     const [ins] = await pool.query(
-      `INSERT INTO barbers (tenant_id, branch_id, full_name, is_active)
-       VALUES (:tenantId, :branchId, :name, 1)`,
-      { tenantId: req.tenant.id, branchId, name }
+      `INSERT INTO barbers (tenant_id, branch_id, full_name, commission_pct, is_active)
+       VALUES (:tenantId, :branchId, :name, :commissionPct, 1)`,
+      { tenantId: req.tenant.id, branchId, name, commissionPct }
     );
 
     try {
@@ -150,6 +154,14 @@ router.patch("/:id", auth, requireRole("admin"), async (req, res) => {
       if (!branch) return res.status(400).json({ error: "branchId no existe en este tenant" });
       updates.push("branch_id = :branchId");
       params.branchId = branchId;
+    }
+    if (req.body?.commissionPct !== undefined) {
+      const commissionPct = Number(req.body.commissionPct);
+      if (!Number.isFinite(commissionPct) || commissionPct < 0 || commissionPct > 100) {
+        return res.status(400).json({ error: "commissionPct inválido (0 a 100)" });
+      }
+      updates.push("commission_pct = :commissionPct");
+      params.commissionPct = commissionPct;
     }
 
     if (!updates.length) return res.status(400).json({ error: "Sin cambios" });

@@ -84,8 +84,10 @@ export default function AdminRankingPage() {
               Vista barbero: se muestran solo tus cortes finalizados.
             </div>
           ) : null}
-          * Cuenta cortes finalizados (status <span className="text-zinc-200">done</span>).  
-          * El ranking es mensual (año/mes seleccionable).
+          * Cuenta servicios finalizados (status <span className="text-zinc-200">done</span>).  
+          * Muestra facturación estimada y detalle de servicios por barbero.  
+          * Calcula comisión estimada según el % configurado por barbero.  
+          * Incluye historial de los últimos 6 meses.
         </div>
       </Container>
     </div>

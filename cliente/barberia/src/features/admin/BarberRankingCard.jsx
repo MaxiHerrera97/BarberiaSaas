@@ -19,6 +19,9 @@ export default function BarberRankingCard() {
   const [errorMsg, setErrorMsg] = useState("");
   const [ranking, setRanking] = useState([]);
   const [clientsByBarber, setClientsByBarber] = useState({});
+  const [servicesByBarber, setServicesByBarber] = useState({});
+  const [summary, setSummary] = useState({ cuts: 0, revenue_ars: 0, commission_ars: 0 });
+  const [history, setHistory] = useState([]);
 
   // expand/collapse por barbero
   const [openBarber, setOpenBarber] = useState(null);
@@ -43,12 +46,22 @@ export default function BarberRankingCard() {
         if (alive) {
           setRanking(list);
           setClientsByBarber(data?.clientsByBarber || {});
+          setServicesByBarber(data?.servicesByBarber || {});
+          setSummary({
+            cuts: Number(data?.summary?.cuts || 0),
+            revenue_ars: Number(data?.summary?.revenue_ars || 0),
+            commission_ars: Number(data?.summary?.commission_ars || 0),
+          });
+          setHistory(Array.isArray(data?.history) ? data.history : []);
           setOpenBarber(null);
         }
       } catch (e) {
         if (alive) {
           setRanking([]);
           setClientsByBarber({});
+          setServicesByBarber({});
+          setSummary({ cuts: 0, revenue_ars: 0, commission_ars: 0 });
+          setHistory([]);
           setOpenBarber(null);
           setErrorMsg(e?.message || "No se pudo cargar el ranking.");
         }
@@ -102,6 +115,43 @@ export default function BarberRankingCard() {
         </div>
       </div>
 
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-xl bg-zinc-900/60 px-3 py-2 ring-1 ring-white/10">
+          <div className="text-xs text-zinc-400">Servicios finalizados</div>
+          <div className="mt-1 text-lg font-bold text-zinc-100">{summary.cuts}</div>
+        </div>
+        <div className="rounded-xl bg-zinc-900/60 px-3 py-2 ring-1 ring-white/10">
+          <div className="text-xs text-zinc-400">Facturación estimada</div>
+          <div className="mt-1 text-lg font-bold text-emerald-300">
+            {new Intl.NumberFormat("es-AR", {
+              style: "currency",
+              currency: "ARS",
+              maximumFractionDigits: 0,
+            }).format(summary.revenue_ars)}
+          </div>
+        </div>
+        <div className="rounded-xl bg-zinc-900/60 px-3 py-2 ring-1 ring-white/10">
+          <div className="text-xs text-zinc-400">Ticket promedio</div>
+          <div className="mt-1 text-lg font-bold text-amber-300">
+            {new Intl.NumberFormat("es-AR", {
+              style: "currency",
+              currency: "ARS",
+              maximumFractionDigits: 0,
+            }).format(summary.cuts > 0 ? summary.revenue_ars / summary.cuts : 0)}
+          </div>
+        </div>
+        <div className="rounded-xl bg-zinc-900/60 px-3 py-2 ring-1 ring-white/10">
+          <div className="text-xs text-zinc-400">Comisión total estimada</div>
+          <div className="mt-1 text-lg font-bold text-cyan-300">
+            {new Intl.NumberFormat("es-AR", {
+              style: "currency",
+              currency: "ARS",
+              maximumFractionDigits: 0,
+            }).format(summary.commission_ars)}
+          </div>
+        </div>
+      </div>
+
       <div className="mt-4">
         {loading ? (
           <div className="text-sm text-zinc-400">Cargando ranking...</div>
@@ -121,6 +171,8 @@ export default function BarberRankingCard() {
                   <th className="px-3 py-2 text-left">#</th>
                   <th className="px-3 py-2 text-left">Barbero</th>
                   <th className="px-3 py-2 text-right">Cortes</th>
+                  <th className="px-3 py-2 text-right">Facturación</th>
+                  <th className="px-3 py-2 text-right">Comisión</th>
                   <th className="px-3 py-2 text-right">Detalle</th>
                 </tr>
               </thead>
@@ -132,6 +184,9 @@ export default function BarberRankingCard() {
                   const clients = Array.isArray(clientsByBarber?.[id])
                     ? clientsByBarber[id]
                     : [];
+                  const services = Array.isArray(servicesByBarber?.[id])
+                    ? servicesByBarber[id]
+                    : [];
 
                   return (
                     <Fragment key={id}>
@@ -140,6 +195,20 @@ export default function BarberRankingCard() {
                         <td className="px-3 py-2 text-zinc-200">{r.barber_name}</td>
                         <td className="px-3 py-2 text-right font-semibold text-amber-300">
                           {r.cuts}
+                        </td>
+                        <td className="px-3 py-2 text-right font-semibold text-emerald-300">
+                          {new Intl.NumberFormat("es-AR", {
+                            style: "currency",
+                            currency: "ARS",
+                            maximumFractionDigits: 0,
+                          }).format(Number(r.revenue_ars || 0))}
+                        </td>
+                        <td className="px-3 py-2 text-right font-semibold text-cyan-300">
+                          {new Intl.NumberFormat("es-AR", {
+                            style: "currency",
+                            currency: "ARS",
+                            maximumFractionDigits: 0,
+                          }).format(Number(r.commission_ars || 0))}
                         </td>
                         <td className="px-3 py-2 text-right">
                           <button
@@ -153,48 +222,148 @@ export default function BarberRankingCard() {
 
                       {open ? (
                         <tr className="border-t border-white/10">
-                          <td colSpan={4} className="px-3 py-3 bg-zinc-950/30">
-                            {clients.length === 0 ? (
-                              <div className="text-sm text-zinc-400">
-                                No hay clientes finalizados para este barbero en el mes.
+                          <td colSpan={6} className="px-3 py-3 bg-zinc-950/30">
+                            <div className="grid gap-3 lg:grid-cols-2">
+                              <div>
+                                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                                  Clientes atendidos
+                                </div>
+                                {clients.length === 0 ? (
+                                  <div className="text-sm text-zinc-400">
+                                    No hay clientes finalizados para este barbero en el mes.
+                                  </div>
+                                ) : (
+                                  <div className="overflow-x-auto rounded-xl ring-1 ring-white/10">
+                                    <table className="min-w-[420px] w-full text-sm">
+                                      <thead className="bg-white/5 text-zinc-300">
+                                        <tr>
+                                          <th className="px-3 py-2 text-left">Cliente</th>
+                                          <th className="px-3 py-2 text-left">Teléfono</th>
+                                          <th className="px-3 py-2 text-right">Veces</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {clients.map((c) => (
+                                          <tr
+                                            key={`${id}-${c.customer_phone}`}
+                                            className="border-t border-white/10"
+                                          >
+                                            <td className="px-3 py-2 text-zinc-200">{c.customer_name}</td>
+                                            <td className="px-3 py-2 text-zinc-400">{c.customer_phone}</td>
+                                            <td className="px-3 py-2 text-right font-semibold text-amber-300">
+                                              {c.visits}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                )}
                               </div>
-                            ) : (
-                              <div className="overflow-x-auto rounded-xl ring-1 ring-white/10">
-                                <table className="min-w-[560px] w-full text-sm">
-                                  <thead className="bg-white/5 text-zinc-300">
-                                    <tr>
-                                      <th className="px-3 py-2 text-left">Cliente</th>
-                                      <th className="px-3 py-2 text-left">Teléfono</th>
-                                      <th className="px-3 py-2 text-right">Veces (done)</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {clients.map((c) => (
-                                      <tr
-                                        key={`${id}-${c.customer_phone}`}
-                                        className="border-t border-white/10"
-                                      >
-                                        <td className="px-3 py-2 text-zinc-200">
-                                          {c.customer_name}
-                                        </td>
-                                        <td className="px-3 py-2 text-zinc-400">
-                                          {c.customer_phone}
-                                        </td>
-                                        <td className="px-3 py-2 text-right font-semibold text-amber-300">
-                                          {c.visits}
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
+
+                              <div>
+                                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                                  Servicios realizados
+                                </div>
+                                {services.length === 0 ? (
+                                  <div className="text-sm text-zinc-400">
+                                    No hay servicios finalizados para este barbero en el mes.
+                                  </div>
+                                ) : (
+                                  <div className="overflow-x-auto rounded-xl ring-1 ring-white/10">
+                                    <table className="min-w-[420px] w-full text-sm">
+                                      <thead className="bg-white/5 text-zinc-300">
+                                        <tr>
+                                          <th className="px-3 py-2 text-left">Servicio</th>
+                                          <th className="px-3 py-2 text-right">Cantidad</th>
+                                          <th className="px-3 py-2 text-right">Facturación</th>
+                                          <th className="px-3 py-2 text-right">Comisión</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {services.map((s) => (
+                                          <tr
+                                            key={`${id}-svc-${s.service_id}`}
+                                            className="border-t border-white/10"
+                                          >
+                                            <td className="px-3 py-2 text-zinc-200">{s.service_name}</td>
+                                            <td className="px-3 py-2 text-right font-semibold text-amber-300">
+                                              {s.qty}
+                                            </td>
+                                            <td className="px-3 py-2 text-right font-semibold text-emerald-300">
+                                              {new Intl.NumberFormat("es-AR", {
+                                                style: "currency",
+                                                currency: "ARS",
+                                                maximumFractionDigits: 0,
+                                              }).format(Number(s.revenue_ars || 0))}
+                                            </td>
+                                            <td className="px-3 py-2 text-right font-semibold text-cyan-300">
+                                              {new Intl.NumberFormat("es-AR", {
+                                                style: "currency",
+                                                currency: "ARS",
+                                                maximumFractionDigits: 0,
+                                              }).format(Number(s.commission_ars || 0))}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                )}
                               </div>
-                            )}
+                            </div>
                           </td>
                         </tr>
                       ) : null}
                     </Fragment>
                   );
                 })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-5 rounded-xl bg-zinc-900/45 p-3 ring-1 ring-white/10">
+        <div className="mb-2 text-sm font-semibold text-zinc-200">Historial últimos 6 meses</div>
+        {history.length === 0 ? (
+          <div className="text-sm text-zinc-400">Sin historial disponible.</div>
+        ) : (
+          <div className="overflow-x-auto rounded-xl ring-1 ring-white/10">
+            <table className="min-w-[520px] w-full text-sm">
+              <thead className="bg-white/5 text-zinc-300">
+                <tr>
+                  <th className="px-3 py-2 text-left">Mes</th>
+                  <th className="px-3 py-2 text-right">Servicios done</th>
+                  <th className="px-3 py-2 text-right">Facturación</th>
+                  <th className="px-3 py-2 text-right">Comisión</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((h) => (
+                  <tr key={`${h.year}-${h.month}`} className="border-t border-white/10">
+                    <td className="px-3 py-2 text-zinc-200">
+                      {monthLabel(Number(h.month))} {h.year}
+                    </td>
+                    <td className="px-3 py-2 text-right font-semibold text-amber-300">
+                      {Number(h.cuts || 0)}
+                    </td>
+                    <td className="px-3 py-2 text-right font-semibold text-emerald-300">
+                      {new Intl.NumberFormat("es-AR", {
+                        style: "currency",
+                        currency: "ARS",
+                        maximumFractionDigits: 0,
+                      }).format(Number(h.revenue_ars || 0))}
+                    </td>
+                    <td className="px-3 py-2 text-right font-semibold text-cyan-300">
+                      {new Intl.NumberFormat("es-AR", {
+                        style: "currency",
+                        currency: "ARS",
+                        maximumFractionDigits: 0,
+                      }).format(Number(h.commission_ars || 0))}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

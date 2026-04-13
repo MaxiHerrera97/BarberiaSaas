@@ -39,6 +39,9 @@ function mapApiAppointment(r) {
     id: String(r.id),
     barberId: r.barber_id,
     serviceId: r.service_id,
+    serviceNameSnapshot: String(r.service_name_snapshot || "").trim(),
+    servicePriceSnapshot: Number(r.service_price_ars_snapshot || 0) || null,
+    serviceDurationSnapshot: Number(r.service_duration_min_snapshot || 0) || null,
     customerName: r.customer_name,
     customerPhone: r.customer_phone || "",
     startAt: start,
@@ -299,7 +302,9 @@ export default function DisplayPages({
                         </div>
                         <div className="mt-2 text-2xl text-zinc-400">
                           {formatTime(inProg.startAt)} - {formatTime(inProg.endAt)} ·{" "}
-                          {serviceById.get(inProg.serviceId)?.name ?? "Servicio"}
+                          {inProg.serviceNameSnapshot ||
+                            serviceById.get(inProg.serviceId)?.name ||
+                            "Servicio"}
                         </div>
                       </div>
                     ) : (
@@ -321,7 +326,9 @@ export default function DisplayPages({
                             {maskNameOptional(next.customerName)}
                           </div>
                           <div className="mt-2 text-2xl text-zinc-400">
-                            {serviceById.get(next.serviceId)?.name ?? "Servicio"}
+                            {next.serviceNameSnapshot ||
+                              serviceById.get(next.serviceId)?.name ||
+                              "Servicio"}
                           </div>
                         </div>
                         <div className="text-6xl font-black tabular-nums">

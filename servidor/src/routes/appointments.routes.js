@@ -17,6 +17,17 @@ async function cleanupExpiredHolds(tenantId) {
   );
 }
 
+async function autoFinalizeElapsedAppointments(tenantId) {
+  await pool.query(
+    `UPDATE appointments
+     SET status = 'done'
+     WHERE tenant_id = :tenantId
+       AND status = 'in_progress'
+       AND end_at <= NOW()`,
+    { tenantId }
+  );
+}
+
 function toMySQLDateOnly(dateLike) {
   const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
   if (Number.isNaN(d.getTime())) return "";
@@ -127,6 +138,8 @@ async function isWithinBarberAvailability(tenantId, barberId, startAt, endAt) {
  */
 router.get("/display", async (req, res) => {
   try {
+    await autoFinalizeElapsedAppointments(req.tenant.id);
+
     const dateStr = req.query.date;
     const branchId = req.query.branchId ? Number(req.query.branchId) : null;
     if (req.query.branchId !== undefined && (!Number.isInteger(branchId) || branchId <= 0)) {
@@ -143,7 +156,9 @@ router.get("/display", async (req, res) => {
     }
 
     const [rows] = await pool.query(
-      `SELECT id, branch_id, barber_id, service_id, customer_name, start_at, end_at, status
+      `SELECT id, branch_id, barber_id, service_id,
+              service_name_snapshot, service_price_ars_snapshot, service_duration_min_snapshot,
+              customer_name, start_at, end_at, status
        FROM appointments
        WHERE ${where}
        ORDER BY start_at ASC`,
@@ -163,6 +178,8 @@ router.get("/display", async (req, res) => {
  */
 router.get("/", auth, async (req, res) => {
   try {
+    await autoFinalizeElapsedAppointments(req.tenant.id);
+
     const dateStr = req.query.date;
     const branchId = req.query.branchId ? Number(req.query.branchId) : null;
     if (req.query.branchId !== undefined && (!Number.isInteger(branchId) || branchId <= 0)) {
@@ -175,6 +192,7 @@ router.get("/", auth, async (req, res) => {
 
     let sql = `
       SELECT a.id, a.branch_id, a.barber_id, a.service_id, a.customer_name, a.customer_phone,
+             a.service_name_snapshot, a.service_price_ars_snapshot, a.service_duration_min_snapshot,
              a.start_at, a.end_at, a.status, a.notes
       FROM appointments a
       WHERE a.tenant_id = :tenantId AND a.start_at >= :start AND a.start_at < :end
@@ -207,6 +225,8 @@ router.get("/", auth, async (req, res) => {
  */
 router.get("/availability", async (req, res) => {
   try {
+    await autoFinalizeElapsedAppointments(req.tenant.id);
+
     const dateStr = req.query.date;
     const barberId = req.query.barberId ? Number(req.query.barberId) : null;
     const branchId = req.query.branchId ? Number(req.query.branchId) : null;
@@ -235,6 +255,7 @@ router.get("/availability", async (req, res) => {
 
     const [appts] = await pool.query(
       `SELECT id, branch_id, barber_id, service_id,
+              service_name_snapshot, service_price_ars_snapshot, service_duration_min_snapshot,
               DATE_FORMAT(start_at, '%Y-%m-%d %H:%i:%s') AS start_at,
               DATE_FORMAT(end_at,   '%Y-%m-%d %H:%i:%s') AS end_at,
               status
@@ -496,6 +517,34 @@ router.post("/confirm", async (req, res) => {
 
       const h = holds[0];
 
+      const [[service]] = await conn.query(
+        `SELECT id, name, price_ars, duration_min
+         FROM services
+         WHERE id = :serviceId
+           AND tenant_id = :tenantId
+         LIMIT 1`,
+        { serviceId: h.service_id, tenantId: req.tenant.id }
+      );
+      if (!service) {
+        await conn.rollback();
+        return res.status(400).json({ error: "Servicio inválido para este tenant" });
+      }
+
+      const [[barber]] = await conn.query(
+        `SELECT id, commission_pct
+         FROM barbers
+         WHERE id = :barberId
+           AND tenant_id = :tenantId
+         LIMIT 1`,
+        { barberId: h.barber_id, tenantId: req.tenant.id }
+      );
+      if (!barber) {
+        await conn.rollback();
+        return res.status(400).json({ error: "Barbero inválido para este tenant" });
+      }
+      const commissionPct = Number(barber.commission_pct || 0);
+      const commissionArs = Math.round((Number(service.price_ars || 0) * commissionPct) / 100);
+
       // ✅ VALIDACIÓN HORARIOS (defensa)
       if (!(await isWithinBarberAvailability(req.tenant.id, h.barber_id, h.start_at, h.end_at))) {
         await conn.rollback();
@@ -507,14 +556,25 @@ router.post("/confirm", async (req, res) => {
 
       const [ins] = await conn.query(
         `INSERT INTO appointments
-         (tenant_id, branch_id, barber_id, service_id, customer_name, customer_phone, start_at, end_at, status)
+         (tenant_id, branch_id, barber_id, service_id,
+          service_name_snapshot, service_price_ars_snapshot, service_duration_min_snapshot,
+          barber_commission_pct_snapshot, barber_commission_ars_snapshot,
+          customer_name, customer_phone, start_at, end_at, status)
          VALUES
-         (:tenantId, :branchId, :barberId, :serviceId, :customerName, :customerPhone, :startAt, :endAt, 'pending')`,
+         (:tenantId, :branchId, :barberId, :serviceId,
+          :serviceNameSnapshot, :servicePriceSnapshot, :serviceDurationSnapshot,
+          :barberCommissionPctSnapshot, :barberCommissionArsSnapshot,
+          :customerName, :customerPhone, :startAt, :endAt, 'pending')`,
         {
           tenantId: req.tenant.id,
           branchId: h.branch_id,
           barberId: h.barber_id,
           serviceId: h.service_id,
+          serviceNameSnapshot: String(service.name || "").trim().slice(0, 120) || null,
+          servicePriceSnapshot: Number(service.price_ars || 0) || null,
+          serviceDurationSnapshot: Number(service.duration_min || 0) || null,
+          barberCommissionPctSnapshot: commissionPct,
+          barberCommissionArsSnapshot: commissionArs,
           customerName: String(customerName).trim(),
           customerPhone: phoneDigits, // ✅ guardamos normalizado
           startAt: h.start_at,
@@ -596,10 +656,12 @@ router.patch("/:id/status", auth, async (req, res) => {
 /**
  * GET /appointments/ranking?year=2026&month=1
  * PROTEGIDO: solo admin
- * Ranking mensual por barbero (status 'done') + detalle de clientes que vinieron (done)
+ * Ranking mensual por barbero (status 'done') + detalle de clientes/servicios + historial mensual
  */
 router.get("/ranking", auth, async (req, res) => {
   try {
+    await autoFinalizeElapsedAppointments(req.tenant.id);
+
     const role = String(req.user?.role || "").trim().toLowerCase();
     if (!["admin", "barber"].includes(role)) {
       return res.status(403).json({ error: "No autorizado" });
@@ -637,15 +699,23 @@ router.get("/ranking", auth, async (req, res) => {
       ...(role === "barber" ? { barberId: Number(req.user.barberId) } : {}),
     };
 
-    // 1) Ranking por barbero (cortes finalizados)
+    // 1) Ranking por barbero (cortes finalizados + facturación estimada)
     const [rankRows] = await pool.query(
       `
       SELECT 
         a.barber_id,
         COALESCE(b.full_name, CONCAT('Barbero ', a.barber_id)) AS barber_name,
-        COUNT(*) AS cuts
+        COUNT(*) AS cuts,
+        COALESCE(SUM(COALESCE(a.service_price_ars_snapshot, s.price_ars)), 0) AS revenue_ars,
+        COALESCE(SUM(
+          COALESCE(
+            a.barber_commission_ars_snapshot,
+            ROUND(COALESCE(a.service_price_ars_snapshot, s.price_ars) * COALESCE(b.commission_pct, 0) / 100)
+          )
+        ), 0) AS commission_ars
       FROM appointments a
       LEFT JOIN barbers b ON b.id = a.barber_id
+      LEFT JOIN services s ON s.id = a.service_id
       WHERE a.tenant_id = :tenantId
         AND a.status = 'done'
         AND a.start_at >= :start
@@ -688,6 +758,100 @@ router.get("/ranking", auth, async (req, res) => {
       queryParams
     );
 
+    // 3) Detalle de servicios finalizados por barbero (cantidad + facturación)
+    const [serviceRows] = await pool.query(
+      `
+      SELECT
+        a.barber_id,
+        COALESCE(b.full_name, CONCAT('Barbero ', a.barber_id)) AS barber_name,
+        a.service_id,
+        COALESCE(a.service_name_snapshot, s.name, CONCAT('Servicio ', a.service_id)) AS service_name,
+        COUNT(*) AS qty,
+        COALESCE(SUM(COALESCE(a.service_price_ars_snapshot, s.price_ars)), 0) AS revenue_ars,
+        COALESCE(SUM(
+          COALESCE(
+            a.barber_commission_ars_snapshot,
+            ROUND(COALESCE(a.service_price_ars_snapshot, s.price_ars) * COALESCE(b.commission_pct, 0) / 100)
+          )
+        ), 0) AS commission_ars
+      FROM appointments a
+      LEFT JOIN barbers b ON b.id = a.barber_id
+      LEFT JOIN services s ON s.id = a.service_id
+      WHERE a.tenant_id = :tenantId
+        AND a.status = 'done'
+        AND a.start_at >= :start
+        AND a.start_at < :end
+        ${barberFilter}
+        ${branchFilter}
+      GROUP BY a.barber_id, b.full_name, a.service_id, s.name
+      ORDER BY a.barber_id ASC, qty DESC, service_name ASC
+      `,
+      queryParams
+    );
+
+    const servicesByBarber = {};
+    for (const r of serviceRows) {
+      const key = String(r.barber_id);
+      if (!servicesByBarber[key]) servicesByBarber[key] = [];
+      servicesByBarber[key].push({
+        service_id: Number(r.service_id),
+        service_name: r.service_name,
+        qty: Number(r.qty) || 0,
+        revenue_ars: Number(r.revenue_ars) || 0,
+        commission_ars: Number(r.commission_ars) || 0,
+      });
+    }
+
+    // 4) Historial mensual (últimos 6 meses desde el mes seleccionado)
+    const history = [];
+    for (let i = 5; i >= 0; i -= 1) {
+      const startDate = new Date(year, month - 1 - i, 1);
+      const endDate = new Date(year, month - i, 1);
+      const hStart = `${startDate.getFullYear()}-${pad2(startDate.getMonth() + 1)}-01 00:00:00`;
+      const hEnd = `${endDate.getFullYear()}-${pad2(endDate.getMonth() + 1)}-01 00:00:00`;
+
+      const [histRows] = await pool.query(
+        `
+        SELECT
+          COUNT(*) AS cuts,
+          COALESCE(SUM(COALESCE(a.service_price_ars_snapshot, s.price_ars)), 0) AS revenue_ars,
+          COALESCE(SUM(
+            COALESCE(
+              a.barber_commission_ars_snapshot,
+              ROUND(COALESCE(a.service_price_ars_snapshot, s.price_ars) * COALESCE(b.commission_pct, 0) / 100)
+            )
+          ), 0) AS commission_ars
+        FROM appointments a
+        LEFT JOIN barbers b ON b.id = a.barber_id
+        LEFT JOIN services s ON s.id = a.service_id
+        WHERE a.tenant_id = :tenantId
+          AND a.status = 'done'
+          AND a.start_at >= :start
+          AND a.start_at < :end
+          ${barberFilter}
+          ${branchFilter}
+        `,
+        {
+          ...queryParams,
+          start: hStart,
+          end: hEnd,
+        }
+      );
+
+      const row = Array.isArray(histRows) && histRows[0] ? histRows[0] : {};
+      history.push({
+        year: startDate.getFullYear(),
+        month: startDate.getMonth() + 1,
+        cuts: Number(row.cuts) || 0,
+        revenue_ars: Number(row.revenue_ars) || 0,
+        commission_ars: Number(row.commission_ars) || 0,
+      });
+    }
+
+    const totalCuts = rankRows.reduce((acc, r) => acc + (Number(r.cuts) || 0), 0);
+    const totalRevenueArs = rankRows.reduce((acc, r) => acc + (Number(r.revenue_ars) || 0), 0);
+    const totalCommissionArs = rankRows.reduce((acc, r) => acc + (Number(r.commission_ars) || 0), 0);
+
     // armamos un mapa barber_id -> clientes[]
     const clientsByBarber = {};
     for (const r of clientRows) {
@@ -705,12 +869,21 @@ router.get("/ranking", auth, async (req, res) => {
       month,
       start,
       end,
+      summary: {
+        cuts: totalCuts,
+        revenue_ars: totalRevenueArs,
+        commission_ars: totalCommissionArs,
+      },
       ranking: rankRows.map((r) => ({
         barber_id: r.barber_id,
         barber_name: r.barber_name,
         cuts: Number(r.cuts) || 0,
+        revenue_ars: Number(r.revenue_ars) || 0,
+        commission_ars: Number(r.commission_ars) || 0,
       })),
       clientsByBarber, // ✅ NUEVO
+      servicesByBarber,
+      history,
     });
   } catch (e) {
     console.error(e);
