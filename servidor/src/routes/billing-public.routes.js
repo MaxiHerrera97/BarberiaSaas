@@ -246,12 +246,26 @@ router.post("/public/mercadopago/checkout", async (req, res) => {
       return res.status(502).json({ error: `Error creando checkout de Mercado Pago: ${detail}` });
     }
 
+    const isTestToken = String(serverConfig.mpAccessToken || "")
+      .trim()
+      .toUpperCase()
+      .startsWith("TEST-");
+    const checkoutUrl = isTestToken
+      ? (mpData.sandbox_init_point || mpData.init_point || "")
+      : (mpData.init_point || mpData.sandbox_init_point || "");
+
+    if (!checkoutUrl) {
+      return res.status(502).json({
+        error: "Mercado Pago no devolvió un link de checkout válido",
+      });
+    }
+
     return res.json({
       ok: true,
       provider: "mercado_pago",
       billingMonth: requestedMonth,
       preferenceId: mpData.id,
-      checkoutUrl: mpData.init_point,
+      checkoutUrl,
       sandboxCheckoutUrl: mpData.sandbox_init_point || "",
     });
   } catch (e) {

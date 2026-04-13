@@ -366,7 +366,11 @@ export default function AdminPage({
                 billingInfo?.onlinePayment?.enabled ? (
                   <button
                     onClick={startMonthlyPayment}
-                    disabled={startingCheckout || billingLoading}
+                    disabled={
+                      startingCheckout ||
+                      billingLoading ||
+                      !billingInfo?.billing?.isPaymentWindow
+                    }
                     className="rounded-xl bg-amber-400 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-amber-300 disabled:opacity-60"
                   >
                     {startingCheckout ? "Redirigiendo..." : "Pagar mes"}
@@ -377,6 +381,14 @@ export default function AdminPage({
               {billingError ? (
                 <div className="mt-3 rounded-xl bg-red-500/10 px-3 py-2 text-xs text-red-200 ring-1 ring-red-500/30">
                   {billingError}
+                </div>
+              ) : null}
+
+              {!billingInfo?.billing?.currentMonthPaid &&
+              billingInfo?.onlinePayment?.enabled &&
+              !billingInfo?.billing?.isPaymentWindow ? (
+                <div className="mt-3 rounded-xl bg-zinc-800/70 px-3 py-2 text-xs text-zinc-300 ring-1 ring-white/10">
+                  El pago online desde este panel se habilita del día 1 al 5 de cada mes.
                 </div>
               ) : null}
             </div>
