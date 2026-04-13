@@ -37,7 +37,14 @@ async function resolveTenant(req, res, next) {
                  AND UTC_TIMESTAMP() > trial_ends_at
                 THEN 1
                 ELSE 0
-              END AS trial_expired
+              END AS trial_expired,
+              CASE
+                WHEN trial_active = 1
+                 AND trial_ends_at IS NOT NULL
+                 AND UTC_TIMESTAMP() <= trial_ends_at
+                THEN 1
+                ELSE 0
+              END AS trial_in_window
        FROM tenants
        WHERE slug = :slug
        LIMIT 1`,
@@ -50,6 +57,7 @@ async function resolveTenant(req, res, next) {
 
     const tenant = rows[0];
     const trialExpired = Number(tenant.trial_expired || 0) === 1;
+    const trialInWindow = Number(tenant.trial_in_window || 0) === 1;
 
     if (tenant.status === "active" && trialExpired) {
       await pool.query(
@@ -90,7 +98,8 @@ async function resolveTenant(req, res, next) {
     }
 
     const billingContext = getCurrentBillingContext(tenant.timezone);
-    if (billingContext.isPastDue) {
+    // Si la prueba gratuita sigue vigente, no se suspende por mora.
+    if (!trialInWindow && billingContext.isPastDue) {
       let paymentRows = [];
       try {
         const [rowsPaid] = await pool.query(
