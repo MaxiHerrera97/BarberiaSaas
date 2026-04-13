@@ -765,7 +765,7 @@ router.get("/ranking", auth, async (req, res) => {
         a.barber_id,
         COALESCE(b.full_name, CONCAT('Barbero ', a.barber_id)) AS barber_name,
         a.service_id,
-        COALESCE(a.service_name_snapshot, s.name, CONCAT('Servicio ', a.service_id)) AS service_name,
+        COALESCE(MAX(a.service_name_snapshot), s.name, CONCAT('Servicio ', a.service_id)) AS service_name,
         COUNT(*) AS qty,
         COALESCE(SUM(COALESCE(a.service_price_ars_snapshot, s.price_ars)), 0) AS revenue_ars,
         COALESCE(SUM(
