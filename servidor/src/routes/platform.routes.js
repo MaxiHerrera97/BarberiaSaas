@@ -477,6 +477,156 @@ router.get("/billing/overview", requirePlatformAccess, async (req, res) => {
   }
 });
 
+function shiftBillingMonth(baseMonth, delta) {
+  const [yearRaw, monthRaw] = String(baseMonth || "").split("-");
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  if (!Number.isInteger(year) || !Number.isInteger(month)) return "";
+  const d = new Date(Date.UTC(year, month - 1 + delta, 1));
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `${yyyy}-${mm}`;
+}
+
+router.get("/billing/metrics", requirePlatformAccess, async (req, res) => {
+  try {
+    const requestedMonth = String(req.query?.month || "").trim();
+    if (requestedMonth && !isValidBillingMonth(requestedMonth)) {
+      return res.status(400).json({ error: "month inválido (YYYY-MM)" });
+    }
+
+    const monthsWindow = Math.min(Math.max(Number(req.query?.months) || 6, 3), 12);
+    const currentMonth = getCurrentBillingContext("America/Argentina/Buenos_Aires").billingMonth;
+    const targetMonth = requestedMonth || currentMonth;
+
+    const [tenants] = await pool.query(
+      `SELECT id, slug, name, status, timezone
+       FROM tenants
+       ORDER BY id ASC`
+    );
+
+    const totalTenants = tenants.length;
+    const mrrArs = totalTenants * BILLING_MONTHLY_FEE_ARS;
+
+    const [[paidAgg]] = await pool.query(
+      `SELECT COUNT(*) AS paid_count, COALESCE(SUM(amount_ars), 0) AS collected_ars
+       FROM tenant_billing_payments
+       WHERE billing_month = :billingMonth`,
+      { billingMonth: targetMonth }
+    );
+    const paidCount = Number(paidAgg?.paid_count || 0);
+    const collectedArs = Number(paidAgg?.collected_ars || 0);
+    const unpaidCount = Math.max(0, totalTenants - paidCount);
+    const pendingArs = Math.max(0, mrrArs - collectedArs);
+    const collectionRatePct = mrrArs > 0 ? Math.round((collectedArs / mrrArs) * 100) : 0;
+
+    const [methodsRows] = await pool.query(
+      `SELECT payment_method, COUNT(*) AS payments_count, COALESCE(SUM(amount_ars), 0) AS amount_ars
+       FROM tenant_billing_payments
+       WHERE billing_month = :billingMonth
+       GROUP BY payment_method`,
+      { billingMonth: targetMonth }
+    );
+    const byMethod = {
+      transferencia: { method: "transferencia", count: 0, amountArs: 0, sharePct: 0 },
+      mercado_pago: { method: "mercado_pago", count: 0, amountArs: 0, sharePct: 0 },
+      efectivo: { method: "efectivo", count: 0, amountArs: 0, sharePct: 0 },
+    };
+    for (const row of methodsRows) {
+      const method = String(row.payment_method || "").trim().toLowerCase();
+      if (!byMethod[method]) continue;
+      byMethod[method] = {
+        method,
+        count: Number(row.payments_count || 0),
+        amountArs: Number(row.amount_ars || 0),
+        sharePct: 0,
+      };
+    }
+    const totalMethodsAmount = Object.values(byMethod).reduce((acc, m) => acc + (m.amountArs || 0), 0);
+    for (const key of Object.keys(byMethod)) {
+      byMethod[key].sharePct = totalMethodsAmount > 0
+        ? Math.round((byMethod[key].amountArs / totalMethodsAmount) * 100)
+        : 0;
+    }
+
+    const trendMonths = [];
+    for (let i = monthsWindow - 1; i >= 0; i -= 1) {
+      trendMonths.push(shiftBillingMonth(targetMonth, -i));
+    }
+    const trend = [];
+    for (const month of trendMonths) {
+      const [[agg]] = await pool.query(
+        `SELECT COUNT(*) AS paid_count, COALESCE(SUM(amount_ars), 0) AS collected_ars
+         FROM tenant_billing_payments
+         WHERE billing_month = :billingMonth`,
+        { billingMonth: month }
+      );
+      const monthPaid = Number(agg?.paid_count || 0);
+      const monthCollected = Number(agg?.collected_ars || 0);
+      const monthUnpaid = Math.max(0, totalTenants - monthPaid);
+      const monthExpected = mrrArs;
+      trend.push({
+        month,
+        expectedArs: monthExpected,
+        collectedArs: monthCollected,
+        paidCount: monthPaid,
+        unpaidCount: monthUnpaid,
+        collectionRatePct: monthExpected > 0 ? Math.round((monthCollected / monthExpected) * 100) : 0,
+      });
+    }
+
+    const overdueTenants = [];
+    for (const tenant of tenants) {
+      const ctx = getCurrentBillingContext(tenant.timezone);
+      if (!ctx.isPastDue || ctx.billingMonth !== targetMonth) continue;
+      const [[tenantPaid]] = await pool.query(
+        `SELECT id
+         FROM tenant_billing_payments
+         WHERE tenant_id = :tenantId
+           AND billing_month = :billingMonth
+         LIMIT 1`,
+        { tenantId: tenant.id, billingMonth: targetMonth }
+      );
+      if (tenantPaid) continue;
+      overdueTenants.push({
+        id: tenant.id,
+        slug: tenant.slug,
+        name: tenant.name,
+        status: tenant.status,
+        billingMonth: targetMonth,
+        daysLate: Math.max(1, Number(ctx.dayOfMonth || 0) - BILLING_WINDOW_END_DAY),
+      });
+    }
+
+    return res.json({
+      month: targetMonth,
+      monthsWindow,
+      billing: {
+        monthlyFeeArs: BILLING_MONTHLY_FEE_ARS,
+        paymentWindowStartDay: 1,
+        paymentWindowEndDay: BILLING_WINDOW_END_DAY,
+        acceptedMethods: PAYMENT_METHODS,
+      },
+      totals: {
+        totalTenants,
+        mrrArs,
+        paidCount,
+        unpaidCount,
+        collectedArs,
+        pendingArs,
+        collectionRatePct,
+        overdueCount: overdueTenants.length,
+      },
+      methods: Object.values(byMethod),
+      trend,
+      overdueTenants,
+    });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: "Error construyendo métricas de billing" });
+  }
+});
+
 router.get("/tenants/:tenantId/billing", requirePlatformAccess, async (req, res) => {
   try {
     const tenantId = Number(req.params.tenantId);

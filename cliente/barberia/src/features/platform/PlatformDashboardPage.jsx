@@ -12,6 +12,19 @@ function formatMoney(value) {
   }).format(Number(value || 0));
 }
 
+function formatMonthLabel(yyyyMm) {
+  const raw = String(yyyyMm || "").trim();
+  if (!/^\d{4}-\d{2}$/.test(raw)) return raw || "-";
+  const [y, m] = raw.split("-");
+  const date = new Date(Number(y), Number(m) - 1, 1);
+  return date.toLocaleDateString("es-AR", { month: "short", year: "numeric" });
+}
+
+function toCsvCell(value) {
+  const text = String(value ?? "");
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
 function toSlug(value) {
   return String(value || "")
     .trim()
@@ -48,6 +61,7 @@ export default function PlatformDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [overview, setOverview] = useState(null);
+  const [billingMetrics, setBillingMetrics] = useState(null);
   const [payingId, setPayingId] = useState(0);
   const [togglingId, setTogglingId] = useState(0);
   const [deletingTenantId, setDeletingTenantId] = useState(0);
@@ -81,6 +95,10 @@ export default function PlatformDashboardPage() {
 
   const session = loadPlatformSession();
   const tenants = useMemo(() => overview?.tenants || [], [overview]);
+  const trendMax = useMemo(() => {
+    const vals = (billingMetrics?.trend || []).map((t) => Number(t.expectedArs || 0));
+    return vals.length ? Math.max(...vals, 1) : 1;
+  }, [billingMetrics]);
   const firstBaseDomain = platformConfig.tenantBaseDomains?.[0] || "localhost";
 
   useEffect(() => {
@@ -92,13 +110,15 @@ export default function PlatformDashboardPage() {
     async function bootstrap() {
       try {
         await platformFetch("/platform/auth/me");
-        const [data, audit] = await Promise.all([
+        const [data, audit, metrics] = await Promise.all([
           platformFetch("/platform/billing/overview"),
           platformFetch("/platform/audit?limit=50"),
+          platformFetch("/platform/billing/metrics?months=6"),
         ]);
         const cfg = await platformFetch("/platform/config");
         if (!alive) return;
         setOverview(data);
+        setBillingMetrics(metrics);
         setAuditLogs(Array.isArray(audit?.logs) ? audit.logs : []);
         setPlatformConfig({
           tenantBaseDomains:
@@ -135,15 +155,61 @@ export default function PlatformDashboardPage() {
     setTimeout(() => setOkMsg(""), 2500);
   }
 
+  function exportBillingCsv() {
+    const month = billingMetrics?.month || overview?.month || "";
+    const rows = tenants.map((tenant) => {
+      const payment = tenant.payment || null;
+      return [
+        month,
+        tenant.id,
+        tenant.slug,
+        tenant.name,
+        tenant.status,
+        tenant.currentMonthPaid ? "si" : "no",
+        tenant.suspendedByPayment ? "si" : "no",
+        payment?.payment_method || "",
+        payment?.amount_ars || "",
+        payment?.paid_at || "",
+      ];
+    });
+
+    const headers = [
+      "mes",
+      "tenant_id",
+      "slug",
+      "nombre",
+      "estado",
+      "pagado_mes_actual",
+      "suspendido_por_pago",
+      "metodo_pago",
+      "monto_ars",
+      "pagado_en",
+    ];
+
+    const csv = [headers, ...rows]
+      .map((line) => line.map((cell) => toCsvCell(cell)).join(","))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `billing-${month || "actual"}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    markOk("CSV de cobros exportado");
+  }
+
   async function refresh() {
     setLoading(true);
     setError("");
     try {
-      const [data, audit] = await Promise.all([
+      const [data, audit, metrics] = await Promise.all([
         platformFetch("/platform/billing/overview"),
         platformFetch("/platform/audit?limit=50"),
+        platformFetch("/platform/billing/metrics?months=6"),
       ]);
       setOverview(data);
+      setBillingMetrics(metrics);
       setAuditLogs(Array.isArray(audit?.logs) ? audit.logs : []);
     } catch (e) {
       setError(e.message || "No se pudo refrescar el dashboard");
@@ -508,6 +574,12 @@ export default function PlatformDashboardPage() {
               Actualizar
             </button>
             <button
+              onClick={exportBillingCsv}
+              className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-semibold ring-1 ring-white/10 hover:bg-zinc-800"
+            >
+              Exportar CSV
+            </button>
+            <button
               onClick={logout}
               className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-semibold ring-1 ring-white/10 hover:bg-zinc-800"
             >
@@ -635,6 +707,33 @@ export default function PlatformDashboardPage() {
           </div>
         </section>
 
+        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-2xl bg-zinc-900/60 p-4 ring-1 ring-white/10">
+            <div className="text-xs text-zinc-400">MRR estimado</div>
+            <div className="mt-1 text-2xl font-black">
+              {formatMoney(billingMetrics?.totals?.mrrArs)}
+            </div>
+          </div>
+          <div className="rounded-2xl bg-zinc-900/60 p-4 ring-1 ring-white/10">
+            <div className="text-xs text-zinc-400">Tasa de cobranza</div>
+            <div className="mt-1 text-2xl font-black text-emerald-300">
+              {Number(billingMetrics?.totals?.collectionRatePct || 0)}%
+            </div>
+          </div>
+          <div className="rounded-2xl bg-zinc-900/60 p-4 ring-1 ring-white/10">
+            <div className="text-xs text-zinc-400">Morosos (vencidos)</div>
+            <div className="mt-1 text-2xl font-black text-amber-300">
+              {Number(billingMetrics?.totals?.overdueCount || 0)}
+            </div>
+          </div>
+          <div className="rounded-2xl bg-zinc-900/60 p-4 ring-1 ring-white/10">
+            <div className="text-xs text-zinc-400">Mes analizado</div>
+            <div className="mt-1 text-2xl font-black text-zinc-200">
+              {formatMonthLabel(billingMetrics?.month)}
+            </div>
+          </div>
+        </section>
+
         <section className="rounded-2xl bg-zinc-900/50 p-4 ring-1 ring-white/10">
           <div className="grid gap-2 text-sm md:grid-cols-3">
             <div>
@@ -655,6 +754,94 @@ export default function PlatformDashboardPage() {
                 {formatMoney(summary.pendingRevenueArs)}
               </span>
             </div>
+          </div>
+        </section>
+
+        <section className="grid gap-4 lg:grid-cols-2">
+          <article className="rounded-2xl bg-zinc-900/50 p-4 ring-1 ring-white/10">
+            <h3 className="mb-3 text-base font-bold">Ingresos por método</h3>
+            <div className="space-y-3">
+              {(billingMetrics?.methods || []).map((row) => (
+                <div key={row.method} className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-zinc-300">{row.method}</span>
+                    <span className="text-zinc-400">
+                      {formatMoney(row.amountArs)} · {Number(row.sharePct || 0)}%
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-zinc-800">
+                    <div
+                      className="h-2 rounded-full bg-amber-400"
+                      style={{ width: `${Math.max(4, Number(row.sharePct || 0))}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+              {!(billingMetrics?.methods || []).length ? (
+                <div className="text-xs text-zinc-400">Sin datos de pagos por método.</div>
+              ) : null}
+            </div>
+          </article>
+
+          <article className="rounded-2xl bg-zinc-900/50 p-4 ring-1 ring-white/10">
+            <h3 className="mb-3 text-base font-bold">Tendencia de cobranza</h3>
+            <div className="space-y-3">
+              {(billingMetrics?.trend || []).map((row) => (
+                <div key={row.month} className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-zinc-300">{formatMonthLabel(row.month)}</span>
+                    <span className="text-zinc-400">
+                      {formatMoney(row.collectedArs)} / {formatMoney(row.expectedArs)}
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-zinc-800">
+                    <div
+                      className="h-2 rounded-full bg-emerald-400"
+                      style={{
+                        width: `${Math.max(
+                          4,
+                          Math.round((Number(row.collectedArs || 0) / Number(trendMax || 1)) * 100)
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+              {!(billingMetrics?.trend || []).length ? (
+                <div className="text-xs text-zinc-400">Sin datos de tendencia.</div>
+              ) : null}
+            </div>
+          </article>
+        </section>
+
+        <section className="rounded-2xl bg-zinc-900/50 p-4 ring-1 ring-white/10">
+          <h3 className="mb-3 text-base font-bold">Tenants vencidos (prioridad de cobro)</h3>
+          <div className="space-y-2">
+            {(billingMetrics?.overdueTenants || []).length ? (
+              billingMetrics.overdueTenants.map((t) => (
+                <div
+                  key={t.id}
+                  className="flex flex-col gap-2 rounded-xl bg-zinc-950/70 px-3 py-2 text-sm ring-1 ring-white/10 md:flex-row md:items-center md:justify-between"
+                >
+                  <div>
+                    <div className="font-semibold text-zinc-100">{t.name}</div>
+                    <div className="text-xs text-zinc-400">
+                      {t.slug} · {t.daysLate} día(s) de atraso · estado {t.status}
+                    </div>
+                  </div>
+                  <a
+                    href={buildTenantPublicUrl(t.slug, firstBaseDomain)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-zinc-100"
+                  >
+                    Abrir sitio
+                  </a>
+                </div>
+              ))
+            ) : (
+              <div className="text-sm text-zinc-400">No hay vencidos para este mes.</div>
+            )}
           </div>
         </section>
 
