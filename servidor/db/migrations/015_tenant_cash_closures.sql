@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS tenant_cash_closures (
   commission_ars INT UNSIGNED NOT NULL DEFAULT 0,
   by_barber_json JSON NULL,
   by_service_json JSON NULL,
-  closed_by_user_id INT UNSIGNED NULL,
+  closed_by_user_id INT NULL,
   notes VARCHAR(255) NULL,
   closed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -32,4 +32,3 @@ CREATE TABLE IF NOT EXISTS tenant_cash_closures (
     ON DELETE SET NULL
     ON UPDATE CASCADE
 );
-

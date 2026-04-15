@@ -97,6 +97,10 @@ export default function AdminPage({
   const [cashError, setCashError] = useState("");
   const [cashClosing, setCashClosing] = useState(false);
   const [cashMsg, setCashMsg] = useState("");
+  const [commissionSummary, setCommissionSummary] = useState(null);
+  const [commissionLoading, setCommissionLoading] = useState(false);
+  const [commissionError, setCommissionError] = useState("");
+  const [commissionSavingBarberId, setCommissionSavingBarberId] = useState(0);
 
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -214,6 +218,7 @@ export default function AdminPage({
   const dayByServiceSource = cashSummary?.closing?.isClosed
     ? cashSummary?.closing?.snapshot?.byService || cashSummary?.byServiceDay || []
     : cashSummary?.byServiceDay || [];
+  const canCloseCashDay = Number(dayCashSource?.services_done || 0) > 0;
 
   useEffect(() => {
     if (session?.role !== "admin") return;
@@ -343,6 +348,37 @@ export default function AdminPage({
     };
   }, [date, selectedBranchId, session?.role]);
 
+  useEffect(() => {
+    if (session?.role !== "admin") return;
+    let alive = true;
+    async function loadCommissions() {
+      setCommissionLoading(true);
+      setCommissionError("");
+      try {
+        const yyyy = date.getFullYear();
+        const mm = date.getMonth() + 1;
+        const branchQuery =
+          selectedBranchId && selectedBranchId !== "all"
+            ? `&branchId=${selectedBranchId}`
+            : "";
+        const data = await apiFetch(
+          `/appointments/commissions-summary?year=${yyyy}&month=${mm}${branchQuery}`
+        );
+        if (!alive) return;
+        setCommissionSummary(data || null);
+      } catch (e) {
+        if (!alive) return;
+        setCommissionError(e.message || "No se pudo cargar comisiones");
+      } finally {
+        if (alive) setCommissionLoading(false);
+      }
+    }
+    loadCommissions();
+    return () => {
+      alive = false;
+    };
+  }, [date, selectedBranchId, session?.role]);
+
   async function startMonthlyPayment() {
     if (startingCheckout) return;
     setStartingCheckout(true);
@@ -410,9 +446,81 @@ export default function AdminPage({
           return closeCashDay(true);
         }
       }
-      setCashError(e.message || "No se pudo cerrar caja del día");
+      if (e?.code === "CASH_EMPTY_DAY") {
+        setCashError("No hay movimientos finalizados para cerrar la caja de este día.");
+      } else {
+        setCashError(e.message || "No se pudo cerrar caja del día");
+      }
     } finally {
       setCashClosing(false);
+    }
+  }
+
+  async function settleCommission(barberId) {
+    if (commissionSavingBarberId) return;
+    setCommissionSavingBarberId(barberId);
+    setCommissionError("");
+    try {
+      const yyyy = date.getFullYear();
+      const mm = date.getMonth() + 1;
+      const payload = {
+        year: yyyy,
+        month: mm,
+        ...(selectedBranchId && selectedBranchId !== "all"
+          ? { branchId: Number(selectedBranchId) }
+          : {}),
+      };
+      await apiFetch(`/appointments/commissions/${barberId}/settle`, {
+        method: "POST",
+        body: payload,
+      });
+
+      const branchQuery =
+        selectedBranchId && selectedBranchId !== "all"
+          ? `&branchId=${selectedBranchId}`
+          : "";
+      const refreshed = await apiFetch(
+        `/appointments/commissions-summary?year=${yyyy}&month=${mm}${branchQuery}`
+      );
+      setCommissionSummary(refreshed || null);
+    } catch (e) {
+      setCommissionError(e.message || "No se pudo liquidar la comisión");
+    } finally {
+      setCommissionSavingBarberId(0);
+    }
+  }
+
+  async function reopenCommission(barberId) {
+    if (commissionSavingBarberId) return;
+    setCommissionSavingBarberId(barberId);
+    setCommissionError("");
+    try {
+      const yyyy = date.getFullYear();
+      const mm = date.getMonth() + 1;
+      const payload = {
+        year: yyyy,
+        month: mm,
+        ...(selectedBranchId && selectedBranchId !== "all"
+          ? { branchId: Number(selectedBranchId) }
+          : {}),
+      };
+      await apiFetch(`/appointments/commissions/${barberId}/reopen`, {
+        method: "POST",
+        body: payload,
+      });
+
+      const branchQuery =
+        selectedBranchId && selectedBranchId !== "all"
+          ? `&branchId=${selectedBranchId}`
+          : "";
+      const refreshed = await apiFetch(
+        `/appointments/commissions-summary?year=${yyyy}&month=${mm}${branchQuery}`
+      );
+      setCommissionSummary(refreshed || null);
+    } catch (e) {
+      setCommissionError(e.message || "No se pudo reabrir la comisión");
+    } finally {
+      setCommissionSavingBarberId(0);
     }
   }
 
@@ -637,17 +745,20 @@ export default function AdminPage({
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
                   onClick={() => closeCashDay(false)}
-                  disabled={cashClosing || cashLoading}
+                  disabled={cashClosing || cashLoading || !canCloseCashDay}
                   className="rounded-xl bg-zinc-800 px-3 py-2 text-xs font-semibold text-zinc-100 ring-1 ring-white/10 hover:bg-zinc-700 disabled:opacity-60"
                 >
                   {cashClosing ? "Cerrando..." : "Cerrar caja del día"}
                 </button>
+                {!cashLoading && !canCloseCashDay ? (
+                  <div className="text-xs text-zinc-500">
+                    No hay servicios finalizados para cerrar hoy.
+                  </div>
+                ) : null}
                 {cashSummary?.closing?.isClosed && cashSummary?.closing?.closedAt ? (
                   <div className="text-xs text-zinc-400">
                     Cerrada el{" "}
-                    {new Date(String(cashSummary.closing.closedAt).replace(" ", "T")).toLocaleString(
-                      "es-AR"
-                    )}
+                    {cashSummary?.closing?.closedAtDisplay || "-"}
                     {cashSummary?.closing?.closedByUser?.name
                       ? ` por ${cashSummary.closing.closedByUser.name}`
                       : ""}
@@ -798,6 +909,139 @@ export default function AdminPage({
               </div>
             </div>
           </div>
+
+          {session?.role === "admin" ? (
+            <div className="rounded-2xl border border-white/10 bg-zinc-900/40 p-4">
+              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="text-sm text-zinc-400">Comisiones</div>
+                  <div className="text-base font-semibold text-zinc-100">
+                    Comisiones liquidables del mes
+                  </div>
+                </div>
+                <div className="text-xs text-zinc-400">
+                  Mes {commissionSummary?.month || `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`}
+                </div>
+              </div>
+
+              {commissionError ? (
+                <div className="mt-3 rounded-xl bg-red-500/10 px-3 py-2 text-xs text-red-200 ring-1 ring-red-500/30">
+                  {commissionError}
+                </div>
+              ) : null}
+
+              <div className="mt-3 grid gap-3 md:grid-cols-3">
+                <div className="rounded-xl bg-zinc-950/60 p-3 ring-1 ring-white/10">
+                  <div className="text-xs text-zinc-400">Comisión total</div>
+                  <div className="mt-1 font-semibold text-cyan-300">
+                    {new Intl.NumberFormat("es-AR", {
+                      style: "currency",
+                      currency: "ARS",
+                      maximumFractionDigits: 0,
+                    }).format(Number(commissionSummary?.totals?.commission_ars || 0))}
+                  </div>
+                </div>
+                <div className="rounded-xl bg-zinc-950/60 p-3 ring-1 ring-white/10">
+                  <div className="text-xs text-zinc-400">Liquidada</div>
+                  <div className="mt-1 font-semibold text-emerald-300">
+                    {new Intl.NumberFormat("es-AR", {
+                      style: "currency",
+                      currency: "ARS",
+                      maximumFractionDigits: 0,
+                    }).format(Number(commissionSummary?.totals?.settled_commission_ars || 0))}
+                  </div>
+                </div>
+                <div className="rounded-xl bg-zinc-950/60 p-3 ring-1 ring-white/10">
+                  <div className="text-xs text-zinc-400">Pendiente</div>
+                  <div className="mt-1 font-semibold text-amber-300">
+                    {new Intl.NumberFormat("es-AR", {
+                      style: "currency",
+                      currency: "ARS",
+                      maximumFractionDigits: 0,
+                    }).format(Number(commissionSummary?.totals?.pending_commission_ars || 0))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-3 overflow-x-auto rounded-xl ring-1 ring-white/10">
+                <table className="min-w-[720px] w-full text-xs">
+                  <thead className="bg-white/5 text-zinc-300">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Barbero</th>
+                      <th className="px-3 py-2 text-right">Servicios</th>
+                      <th className="px-3 py-2 text-right">Facturación</th>
+                      <th className="px-3 py-2 text-right">Comisión</th>
+                      <th className="px-3 py-2 text-left">Estado</th>
+                      <th className="px-3 py-2 text-right">Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {!commissionLoading && !(commissionSummary?.items || []).length ? (
+                      <tr className="border-t border-white/10">
+                        <td colSpan={6} className="px-3 py-3 text-zinc-400">
+                          Sin comisiones para el período.
+                        </td>
+                      </tr>
+                    ) : (
+                      (commissionSummary?.items || []).map((item) => {
+                        const settled = item?.settlement?.status === "settled";
+                        return (
+                          <tr key={item.barber_id} className="border-t border-white/10">
+                            <td className="px-3 py-2 text-zinc-200">{item.barber_name}</td>
+                            <td className="px-3 py-2 text-right text-zinc-300">{item.services_done}</td>
+                            <td className="px-3 py-2 text-right text-emerald-300">
+                              {new Intl.NumberFormat("es-AR", {
+                                style: "currency",
+                                currency: "ARS",
+                                maximumFractionDigits: 0,
+                              }).format(Number(item.revenue_ars || 0))}
+                            </td>
+                            <td className="px-3 py-2 text-right text-cyan-300">
+                              {new Intl.NumberFormat("es-AR", {
+                                style: "currency",
+                                currency: "ARS",
+                                maximumFractionDigits: 0,
+                              }).format(Number(item.commission_ars || 0))}
+                            </td>
+                            <td className="px-3 py-2">
+                              {settled ? (
+                                <span className="rounded-lg bg-emerald-500/15 px-2 py-1 text-[11px] font-semibold text-emerald-200 ring-1 ring-emerald-500/30">
+                                  Liquidada
+                                </span>
+                              ) : (
+                                <span className="rounded-lg bg-amber-500/15 px-2 py-1 text-[11px] font-semibold text-amber-200 ring-1 ring-amber-500/30">
+                                  Pendiente
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              {settled ? (
+                                <button
+                                  onClick={() => reopenCommission(item.barber_id)}
+                                  disabled={commissionSavingBarberId === item.barber_id}
+                                  className="rounded-lg bg-zinc-800 px-2 py-1 text-[11px] font-semibold text-zinc-100 ring-1 ring-white/10 disabled:opacity-60"
+                                >
+                                  {commissionSavingBarberId === item.barber_id ? "Guardando..." : "Reabrir"}
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => settleCommission(item.barber_id)}
+                                  disabled={commissionSavingBarberId === item.barber_id}
+                                  className="rounded-lg bg-amber-400 px-2 py-1 text-[11px] font-semibold text-zinc-950 disabled:opacity-60"
+                                >
+                                  {commissionSavingBarberId === item.barber_id ? "Guardando..." : "Liquidar"}
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
 
           <div className="sticky top-[74px] z-30 rounded-2xl border border-white/10 bg-zinc-950/80 p-3 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur">
             <div className="mx-auto flex w-full max-w-[980px] flex-col items-stretch gap-3 xl:flex-row xl:items-end xl:justify-center xl:gap-2">

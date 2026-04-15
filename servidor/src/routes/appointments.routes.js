@@ -57,6 +57,47 @@ function dateToHHMM(dateObj) {
   return `${hh}:${mm}`;
 }
 
+function buildMonthRange(year, month) {
+  const pad2 = (n) => String(n).padStart(2, "0");
+  const start = `${year}-${pad2(month)}-01 00:00:00`;
+  const nextMonth = month === 12 ? 1 : month + 1;
+  const nextYear = month === 12 ? year + 1 : year;
+  const end = `${nextYear}-${pad2(nextMonth)}-01 00:00:00`;
+  return {
+    start,
+    end,
+    label: `${year}-${pad2(month)}`,
+  };
+}
+
+function formatDateTimeInTimezone(dateLike, timezone) {
+  if (!dateLike) return "";
+
+  let dateObj = null;
+  if (dateLike instanceof Date) {
+    dateObj = dateLike;
+  } else {
+    const raw = String(dateLike || "").trim();
+    if (!raw) return "";
+    const parsed = raw.includes("T")
+      ? new Date(raw.endsWith("Z") ? raw : `${raw}Z`)
+      : new Date(raw.replace(" ", "T") + "Z");
+    if (!Number.isNaN(parsed.getTime())) dateObj = parsed;
+  }
+  if (!dateObj || Number.isNaN(dateObj.getTime())) return String(dateLike);
+
+  return new Intl.DateTimeFormat("es-AR", {
+    timeZone: timezone || "America/Argentina/Buenos_Aires",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(dateObj);
+}
+
 function windowsFromRow(baseDate, row) {
   if (!row || Number(row.is_closed) === 1) return [];
   const out = [];
@@ -957,11 +998,7 @@ router.get("/cash-summary", auth, async (req, res) => {
       return res.status(400).json({ error: "branchId inválido" });
     }
 
-    const pad2 = (n) => String(n).padStart(2, "0");
-    const monthStart = `${qYear}-${pad2(qMonth)}-01 00:00:00`;
-    const nextMonth = qMonth === 12 ? 1 : qMonth + 1;
-    const nextYear = qMonth === 12 ? qYear + 1 : qYear;
-    const monthEnd = `${nextYear}-${pad2(nextMonth)}-01 00:00:00`;
+    const monthRange = buildMonthRange(qYear, qMonth);
 
     const barberFilter = role === "barber" ? " AND a.barber_id = :barberId " : "";
     const branchFilter = branchId ? " AND a.branch_id = :branchId " : "";
@@ -1022,8 +1059,8 @@ router.get("/cash-summary", auth, async (req, res) => {
       `,
       {
         ...baseParams,
-        start: monthStart,
-        end: monthEnd,
+        start: monthRange.start,
+        end: monthRange.end,
       }
     );
 
@@ -1054,8 +1091,8 @@ router.get("/cash-summary", auth, async (req, res) => {
       `,
       {
         ...baseParams,
-        start: monthStart,
-        end: monthEnd,
+        start: monthRange.start,
+        end: monthRange.end,
       }
     );
 
@@ -1080,8 +1117,8 @@ router.get("/cash-summary", auth, async (req, res) => {
       `,
       {
         ...baseParams,
-        start: monthStart,
-        end: monthEnd,
+        start: monthRange.start,
+        end: monthRange.end,
       }
     );
 
@@ -1194,6 +1231,7 @@ router.get("/cash-summary", auth, async (req, res) => {
           closureDate: dateStr,
           branchScopeId,
           closedAt: row.closed_at || null,
+          closedAtDisplay: formatDateTimeInTimezone(row.closed_at, req.tenant?.timezone),
           closedByUser: row.closed_by_user_id
             ? {
                 id: Number(row.closed_by_user_id),
@@ -1217,7 +1255,7 @@ router.get("/cash-summary", auth, async (req, res) => {
 
     return res.json({
       date: dateStr,
-      month: `${qYear}-${pad2(qMonth)}`,
+      month: monthRange.label,
       daily: {
         services_done: Number(day.services_done) || 0,
         revenue_ars: Number(day.revenue_ars) || 0,
@@ -1371,6 +1409,13 @@ router.post("/cash-close-day", auth, async (req, res) => {
     );
 
     const totals = dayRows?.[0] || {};
+    const totalDone = Number(totals.services_done) || 0;
+    if (totalDone <= 0) {
+      return res.status(400).json({
+        error: "No hay servicios finalizados para cerrar caja en la fecha elegida.",
+        code: "CASH_EMPTY_DAY",
+      });
+    }
     const byBarber = dayByBarberRows.map((r) => ({
       barber_id: Number(r.barber_id),
       barber_name: r.barber_name,
@@ -1453,7 +1498,7 @@ router.post("/cash-close-day", auth, async (req, res) => {
       closureDate: dateStr,
       branchScopeId,
       totals: {
-        services_done: Number(totals.services_done) || 0,
+        services_done: totalDone,
         revenue_ars: Number(totals.revenue_ars) || 0,
         commission_ars: Number(totals.commission_ars) || 0,
       },
@@ -1461,6 +1506,328 @@ router.post("/cash-close-day", auth, async (req, res) => {
   } catch (e) {
     console.error(e);
     return res.status(500).json({ error: "Error cerrando caja del día" });
+  }
+});
+
+/**
+ * GET /appointments/commissions-summary?year=2026&month=4&branchId=1
+ * PROTEGIDO: solo admin
+ * Resumen de comisiones del mes por barbero + estado de liquidación.
+ */
+router.get("/commissions-summary", auth, async (req, res) => {
+  try {
+    if (String(req.user?.role || "").trim().toLowerCase() !== "admin") {
+      return res.status(403).json({ error: "Solo admin puede ver comisiones liquidables" });
+    }
+
+    const now = new Date();
+    const qYear = Number(req.query?.year) || now.getFullYear();
+    const qMonth = Number(req.query?.month) || now.getMonth() + 1;
+    if (!qYear || !qMonth || qMonth < 1 || qMonth > 12) {
+      return res.status(400).json({ error: "Parámetros inválidos (year, month)" });
+    }
+    const branchId = req.query.branchId ? Number(req.query.branchId) : null;
+    if (req.query.branchId !== undefined && (!Number.isInteger(branchId) || branchId <= 0)) {
+      return res.status(400).json({ error: "branchId inválido" });
+    }
+
+    const monthRange = buildMonthRange(qYear, qMonth);
+    const branchFilter = branchId ? " AND a.branch_id = :branchId " : "";
+    const branchScopeId = branchId || 0;
+    const params = {
+      tenantId: req.tenant.id,
+      start: monthRange.start,
+      end: monthRange.end,
+      ...(branchId ? { branchId } : {}),
+    };
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        a.barber_id,
+        COALESCE(b.full_name, CONCAT('Barbero ', a.barber_id)) AS barber_name,
+        COUNT(*) AS services_done,
+        COALESCE(SUM(COALESCE(a.service_price_ars_snapshot, s.price_ars)), 0) AS revenue_ars,
+        COALESCE(SUM(
+          COALESCE(
+            a.barber_commission_ars_snapshot,
+            ROUND(COALESCE(a.service_price_ars_snapshot, s.price_ars) * COALESCE(b.commission_pct, 0) / 100)
+          )
+        ), 0) AS commission_ars
+      FROM appointments a
+      LEFT JOIN barbers b ON b.id = a.barber_id
+      LEFT JOIN services s ON s.id = a.service_id
+      WHERE a.tenant_id = :tenantId
+        AND a.status = 'done'
+        AND a.start_at >= :start
+        AND a.start_at < :end
+        ${branchFilter}
+      GROUP BY a.barber_id, b.full_name
+      ORDER BY commission_ars DESC, services_done DESC, barber_name ASC
+      `,
+      params
+    );
+
+    let settlementsByBarber = {};
+    try {
+      const [settlements] = await pool.query(
+        `
+        SELECT barber_id, status, settled_at, paid_by_user_id, notes
+        FROM tenant_commission_settlements
+        WHERE tenant_id = :tenantId
+          AND settlement_month = :settlementMonth
+          AND branch_scope_id = :branchScopeId
+        `,
+        {
+          tenantId: req.tenant.id,
+          settlementMonth: monthRange.label,
+          branchScopeId,
+        }
+      );
+      settlementsByBarber = Object.fromEntries(
+        settlements.map((s) => [
+          Number(s.barber_id),
+          {
+            status: String(s.status || "").toLowerCase() || "pending",
+            settled_at: s.settled_at || null,
+            paid_by_user_id: s.paid_by_user_id || null,
+            notes: s.notes || "",
+          },
+        ])
+      );
+    } catch (e) {
+      if (e?.code !== "ER_NO_SUCH_TABLE") throw e;
+    }
+
+    const items = rows.map((r) => {
+      const barberId = Number(r.barber_id);
+      const settlement = settlementsByBarber[barberId] || null;
+      return {
+        barber_id: barberId,
+        barber_name: r.barber_name,
+        services_done: Number(r.services_done) || 0,
+        revenue_ars: Number(r.revenue_ars) || 0,
+        commission_ars: Number(r.commission_ars) || 0,
+        settlement: {
+          status: settlement?.status || "pending",
+          settled_at: settlement?.settled_at || null,
+          settled_at_display: settlement?.settled_at
+            ? formatDateTimeInTimezone(settlement.settled_at, req.tenant?.timezone)
+            : "",
+          notes: settlement?.notes || "",
+        },
+      };
+    });
+
+    const totals = items.reduce(
+      (acc, item) => {
+        acc.services_done += Number(item.services_done) || 0;
+        acc.revenue_ars += Number(item.revenue_ars) || 0;
+        acc.commission_ars += Number(item.commission_ars) || 0;
+        if (item.settlement?.status === "settled") {
+          acc.settled_commission_ars += Number(item.commission_ars) || 0;
+        }
+        return acc;
+      },
+      {
+        services_done: 0,
+        revenue_ars: 0,
+        commission_ars: 0,
+        settled_commission_ars: 0,
+      }
+    );
+
+    return res.json({
+      month: monthRange.label,
+      branchScopeId,
+      totals: {
+        ...totals,
+        pending_commission_ars:
+          Number(totals.commission_ars) - Number(totals.settled_commission_ars),
+      },
+      items,
+    });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: "Error generando resumen de comisiones" });
+  }
+});
+
+/**
+ * POST /appointments/commissions/:barberId/settle
+ * PROTEGIDO: solo admin
+ * Marca comisión como liquidada para el mes.
+ */
+router.post("/commissions/:barberId/settle", auth, async (req, res) => {
+  try {
+    if (String(req.user?.role || "").trim().toLowerCase() !== "admin") {
+      return res.status(403).json({ error: "Solo admin puede liquidar comisiones" });
+    }
+
+    const barberId = Number(req.params.barberId);
+    if (!Number.isInteger(barberId) || barberId <= 0) {
+      return res.status(400).json({ error: "barberId inválido" });
+    }
+
+    const qYear = Number(req.body?.year);
+    const qMonth = Number(req.body?.month);
+    if (!qYear || !qMonth || qMonth < 1 || qMonth > 12) {
+      return res.status(400).json({ error: "Parámetros inválidos (year, month)" });
+    }
+
+    const branchId = req.body?.branchId ? Number(req.body.branchId) : null;
+    if (req.body?.branchId !== undefined && (!Number.isInteger(branchId) || branchId <= 0)) {
+      return res.status(400).json({ error: "branchId inválido" });
+    }
+    const branchScopeId = branchId || 0;
+    const monthRange = buildMonthRange(qYear, qMonth);
+    const branchFilter = branchId ? " AND a.branch_id = :branchId " : "";
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        COALESCE(SUM(
+          COALESCE(
+            a.barber_commission_ars_snapshot,
+            ROUND(COALESCE(a.service_price_ars_snapshot, s.price_ars) * COALESCE(b.commission_pct, 0) / 100)
+          )
+        ), 0) AS commission_ars
+      FROM appointments a
+      LEFT JOIN services s ON s.id = a.service_id
+      LEFT JOIN barbers b ON b.id = a.barber_id
+      WHERE a.tenant_id = :tenantId
+        AND a.barber_id = :barberId
+        AND a.status = 'done'
+        AND a.start_at >= :start
+        AND a.start_at < :end
+        ${branchFilter}
+      `,
+      {
+        tenantId: req.tenant.id,
+        barberId,
+        start: monthRange.start,
+        end: monthRange.end,
+        ...(branchId ? { branchId } : {}),
+      }
+    );
+
+    const commissionArs = Number(rows?.[0]?.commission_ars || 0);
+    if (commissionArs <= 0) {
+      return res.status(400).json({
+        error: "No hay comisión pendiente para liquidar en ese período.",
+      });
+    }
+
+    try {
+      await pool.query(
+        `
+        INSERT INTO tenant_commission_settlements
+        (tenant_id, branch_scope_id, branch_id, barber_id, settlement_month, amount_ars, status, settled_at, paid_by_user_id, notes)
+        VALUES
+        (:tenantId, :branchScopeId, :branchId, :barberId, :settlementMonth, :amountArs, 'settled', UTC_TIMESTAMP(), :paidByUserId, :notes)
+        ON DUPLICATE KEY UPDATE
+          amount_ars = VALUES(amount_ars),
+          status = 'settled',
+          settled_at = UTC_TIMESTAMP(),
+          paid_by_user_id = VALUES(paid_by_user_id),
+          notes = VALUES(notes)
+        `,
+        {
+          tenantId: req.tenant.id,
+          branchScopeId,
+          branchId: branchId || null,
+          barberId,
+          settlementMonth: monthRange.label,
+          amountArs: commissionArs,
+          paidByUserId: Number(req.user?.userId || 0) || null,
+          notes: String(req.body?.notes || "Liquidado desde panel admin").slice(0, 255),
+        }
+      );
+    } catch (e) {
+      if (e?.code === "ER_NO_SUCH_TABLE") {
+        return res.status(500).json({
+          error: "Falta tabla tenant_commission_settlements. Ejecuta la migración 016.",
+        });
+      }
+      throw e;
+    }
+
+    return res.json({
+      ok: true,
+      barberId,
+      month: monthRange.label,
+      amount_ars: commissionArs,
+      status: "settled",
+    });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: "Error liquidando comisión" });
+  }
+});
+
+/**
+ * POST /appointments/commissions/:barberId/reopen
+ * PROTEGIDO: solo admin
+ * Reabre liquidación (vuelve a pendiente) para el mes.
+ */
+router.post("/commissions/:barberId/reopen", auth, async (req, res) => {
+  try {
+    if (String(req.user?.role || "").trim().toLowerCase() !== "admin") {
+      return res.status(403).json({ error: "Solo admin puede reabrir comisiones" });
+    }
+
+    const barberId = Number(req.params.barberId);
+    if (!Number.isInteger(barberId) || barberId <= 0) {
+      return res.status(400).json({ error: "barberId inválido" });
+    }
+
+    const qYear = Number(req.body?.year);
+    const qMonth = Number(req.body?.month);
+    if (!qYear || !qMonth || qMonth < 1 || qMonth > 12) {
+      return res.status(400).json({ error: "Parámetros inválidos (year, month)" });
+    }
+
+    const branchId = req.body?.branchId ? Number(req.body.branchId) : null;
+    if (req.body?.branchId !== undefined && (!Number.isInteger(branchId) || branchId <= 0)) {
+      return res.status(400).json({ error: "branchId inválido" });
+    }
+    const branchScopeId = branchId || 0;
+    const monthRange = buildMonthRange(qYear, qMonth);
+
+    try {
+      await pool.query(
+        `
+        DELETE FROM tenant_commission_settlements
+        WHERE tenant_id = :tenantId
+          AND barber_id = :barberId
+          AND settlement_month = :settlementMonth
+          AND branch_scope_id = :branchScopeId
+        `,
+        {
+          tenantId: req.tenant.id,
+          barberId,
+          settlementMonth: monthRange.label,
+          branchScopeId,
+        }
+      );
+    } catch (e) {
+      if (e?.code === "ER_NO_SUCH_TABLE") {
+        return res.status(500).json({
+          error: "Falta tabla tenant_commission_settlements. Ejecuta la migración 016.",
+        });
+      }
+      throw e;
+    }
+
+    return res.json({
+      ok: true,
+      barberId,
+      month: monthRange.label,
+      status: "pending",
+    });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: "Error reabriendo comisión" });
   }
 });
 
