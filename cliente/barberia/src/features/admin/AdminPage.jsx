@@ -524,6 +524,173 @@ export default function AdminPage({
     }
   }
 
+  function exportCommissionsCsv() {
+    const items = commissionSummary?.items || [];
+    if (!items.length) {
+      setCommissionError("No hay datos de comisiones para exportar.");
+      return;
+    }
+
+    const monthLabel =
+      commissionSummary?.month ||
+      `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    const branchLabel =
+      selectedBranchId && selectedBranchId !== "all"
+        ? activeBranches.find((b) => String(b.id) === String(selectedBranchId))?.name ||
+          `Sucursal ${selectedBranchId}`
+        : "Todas las sucursales";
+
+    const escapeCsv = (value) => {
+      const str = String(value ?? "");
+      if (str.includes('"') || str.includes(";") || str.includes("\n")) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    const rows = [
+      ["Mes", monthLabel],
+      ["Sucursal", branchLabel],
+      [],
+      ["Barbero", "Servicios", "Facturacion_ARS", "Comision_ARS", "Estado"],
+      ...items.map((item) => [
+        item.barber_name,
+        Number(item.services_done || 0),
+        Number(item.revenue_ars || 0),
+        Number(item.commission_ars || 0),
+        item?.settlement?.status === "settled" ? "Liquidada" : "Pendiente",
+      ]),
+      [],
+      ["Totales", "", "", "", ""],
+      [
+        "Servicios",
+        Number(commissionSummary?.totals?.services_done || 0),
+        "Facturacion",
+        Number(commissionSummary?.totals?.revenue_ars || 0),
+        "",
+      ],
+      [
+        "Comision total",
+        Number(commissionSummary?.totals?.commission_ars || 0),
+        "Comision liquidada",
+        Number(commissionSummary?.totals?.settled_commission_ars || 0),
+        "",
+      ],
+      [
+        "Comision pendiente",
+        Number(commissionSummary?.totals?.pending_commission_ars || 0),
+        "",
+        "",
+        "",
+      ],
+    ];
+
+    const csv = rows.map((row) => row.map(escapeCsv).join(";")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `comisiones-${monthLabel}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function exportCommissionsPdf() {
+    const items = commissionSummary?.items || [];
+    if (!items.length) {
+      setCommissionError("No hay datos de comisiones para exportar.");
+      return;
+    }
+
+    const monthLabel =
+      commissionSummary?.month ||
+      `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    const branchLabel =
+      selectedBranchId && selectedBranchId !== "all"
+        ? activeBranches.find((b) => String(b.id) === String(selectedBranchId))?.name ||
+          `Sucursal ${selectedBranchId}`
+        : "Todas las sucursales";
+
+    const formatMoney = (value) =>
+      new Intl.NumberFormat("es-AR", {
+        style: "currency",
+        currency: "ARS",
+        maximumFractionDigits: 0,
+      }).format(Number(value || 0));
+
+    const tableRows = items
+      .map(
+        (item) => `
+      <tr>
+        <td>${item.barber_name}</td>
+        <td style="text-align:right;">${Number(item.services_done || 0)}</td>
+        <td style="text-align:right;">${formatMoney(item.revenue_ars)}</td>
+        <td style="text-align:right;">${formatMoney(item.commission_ars)}</td>
+        <td>${item?.settlement?.status === "settled" ? "Liquidada" : "Pendiente"}</td>
+      </tr>`
+      )
+      .join("");
+
+    const html = `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Comisiones ${monthLabel}</title>
+  <style>
+    body { font-family: Arial, sans-serif; color: #111; margin: 24px; }
+    h1 { margin: 0 0 6px; font-size: 20px; }
+    p { margin: 0 0 4px; color: #444; }
+    table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+    th, td { border: 1px solid #ddd; padding: 8px; font-size: 12px; }
+    th { background: #f3f4f6; text-align: left; }
+    .totals { margin-top: 18px; }
+    .totals div { margin: 4px 0; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>Comisiones liquidables</h1>
+  <p><strong>Mes:</strong> ${monthLabel}</p>
+  <p><strong>Sucursal:</strong> ${branchLabel}</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Barbero</th>
+        <th>Servicios</th>
+        <th>Facturación</th>
+        <th>Comisión</th>
+        <th>Estado</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${tableRows}
+    </tbody>
+  </table>
+
+  <div class="totals">
+    <div><strong>Comisión total:</strong> ${formatMoney(commissionSummary?.totals?.commission_ars)}</div>
+    <div><strong>Comisión liquidada:</strong> ${formatMoney(commissionSummary?.totals?.settled_commission_ars)}</div>
+    <div><strong>Comisión pendiente:</strong> ${formatMoney(commissionSummary?.totals?.pending_commission_ars)}</div>
+  </div>
+
+  <script>
+    window.onload = () => window.print();
+  </script>
+</body>
+</html>`;
+
+    const w = window.open("", "_blank", "noopener,noreferrer");
+    if (!w) {
+      setCommissionError("Tu navegador bloqueó la ventana de impresión.");
+      return;
+    }
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+  }
+
   async function logout() {
     setLoggingOut(true);
     try {
@@ -919,8 +1086,24 @@ export default function AdminPage({
                     Comisiones liquidables del mes
                   </div>
                 </div>
-                <div className="text-xs text-zinc-400">
-                  Mes {commissionSummary?.month || `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="text-xs text-zinc-400">
+                    Mes {commissionSummary?.month || `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`}
+                  </div>
+                  <button
+                    onClick={exportCommissionsCsv}
+                    disabled={commissionLoading}
+                    className="rounded-lg bg-zinc-800 px-2 py-1 text-[11px] font-semibold text-zinc-100 ring-1 ring-white/10 disabled:opacity-60"
+                  >
+                    Exportar CSV
+                  </button>
+                  <button
+                    onClick={exportCommissionsPdf}
+                    disabled={commissionLoading}
+                    className="rounded-lg bg-zinc-800 px-2 py-1 text-[11px] font-semibold text-zinc-100 ring-1 ring-white/10 disabled:opacity-60"
+                  >
+                    Exportar PDF
+                  </button>
                 </div>
               </div>
 
