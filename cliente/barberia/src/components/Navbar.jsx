@@ -9,7 +9,7 @@ function getBrandInitials(brandName) {
   if (words.length >= 2) {
     return `${words[0][0] || ""}${words[1][0] || ""}`.toUpperCase();
   }
-  return value.slice(0, 2).toUpperCase();
+  return value.slice(0, 2).toUpperCase(); //Prueba
 }
 
 export default function Navbar({
