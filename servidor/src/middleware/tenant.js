@@ -10,6 +10,11 @@ const {
 
 const serverConfig = getServerConfig();
 
+function isSubscriptionManualOnly(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  return normalized === "paused" || normalized === "cancelled";
+}
+
 function extractRequestHost(req) {
   const forwardedHost = String(req.headers["x-forwarded-host"] || "")
     .split(",")[0]
@@ -30,6 +35,7 @@ async function resolveTenant(req, res, next) {
 
     const [rows] = await pool.query(
       `SELECT id, slug, name, plan, status, timezone, multi_branch_enabled,
+              mp_subscription_status,
               trial_active, trial_starts_at, trial_ends_at,
               CASE
                 WHEN trial_active = 1
@@ -56,6 +62,7 @@ async function resolveTenant(req, res, next) {
     }
 
     const tenant = rows[0];
+    const manualOnlyBySubscription = isSubscriptionManualOnly(tenant.mp_subscription_status);
     const trialExpired = Number(tenant.trial_expired || 0) === 1;
     const trialInWindow = Number(tenant.trial_in_window || 0) === 1;
 
@@ -94,7 +101,9 @@ async function resolveTenant(req, res, next) {
           acceptedMethods: PAYMENT_METHODS,
           canPayOnline: !!serverConfig.mpAccessToken,
           onlinePaymentMode:
-            serverConfig.mpBillingMode === "subscription" ? "subscription" : "checkout",
+            serverConfig.mpBillingMode === "subscription" && !manualOnlyBySubscription
+              ? "subscription"
+              : "checkout",
         },
       });
     }
@@ -135,7 +144,9 @@ async function resolveTenant(req, res, next) {
           acceptedMethods: PAYMENT_METHODS,
           canPayOnline: !!serverConfig.mpAccessToken,
           onlinePaymentMode:
-            serverConfig.mpBillingMode === "subscription" ? "subscription" : "checkout",
+            serverConfig.mpBillingMode === "subscription" && !manualOnlyBySubscription
+              ? "subscription"
+              : "checkout",
         },
       });
       }

@@ -131,6 +131,10 @@ export default function AdminPage({
 
     return { title, subtitle, inTrial };
   }, [billingInfo]);
+  const manualOnlySubscription = !!billingInfo?.subscription?.manualOnly;
+  const effectiveOnlinePaymentMode = manualOnlySubscription
+    ? "checkout"
+    : billingInfo?.onlinePayment?.mode;
 
   useEffect(() => {
     if (session?.role !== "admin") return;
@@ -388,21 +392,21 @@ export default function AdminPage({
                   </div>
                 </div>
 
-              {!billingInfo?.billing?.currentMonthPaid &&
+                {!billingInfo?.billing?.currentMonthPaid &&
                 billingInfo?.onlinePayment?.enabled ? (
                   <button
                     onClick={startMonthlyPayment}
                     disabled={
                       startingCheckout ||
                       billingLoading ||
-                      (billingInfo?.onlinePayment?.mode !== "subscription" &&
+                      (effectiveOnlinePaymentMode !== "subscription" &&
                         !billingInfo?.billing?.isPaymentWindow)
                     }
                     className="rounded-xl bg-amber-400 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-amber-300 disabled:opacity-60"
                   >
                     {startingCheckout
                       ? "Redirigiendo..."
-                      : billingInfo?.onlinePayment?.mode === "subscription"
+                      : effectiveOnlinePaymentMode === "subscription"
                       ? "Activar débito automático"
                       : "Pagar mes"}
                   </button>
@@ -415,10 +419,16 @@ export default function AdminPage({
                 </div>
               ) : null}
 
+              {manualOnlySubscription ? (
+                <div className="mt-3 rounded-xl bg-amber-500/10 px-3 py-2 text-xs text-amber-200 ring-1 ring-amber-500/30">
+                  Tu débito automático está pausado o cancelado. Podés continuar con pago mensual manual.
+                </div>
+              ) : null}
+
               {!billingInfo?.billing?.currentMonthPaid &&
               billingInfo?.onlinePayment?.enabled &&
               !billingView.inTrial &&
-              billingInfo?.onlinePayment?.mode !== "subscription" &&
+              effectiveOnlinePaymentMode !== "subscription" &&
               !billingInfo?.billing?.isPaymentWindow ? (
                 <div className="mt-3 rounded-xl bg-zinc-800/70 px-3 py-2 text-xs text-zinc-300 ring-1 ring-white/10">
                   El pago online desde este panel se habilita del día 1 al 5 de cada mes.

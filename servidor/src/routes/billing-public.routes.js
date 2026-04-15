@@ -14,6 +14,11 @@ const {
 const router = express.Router();
 const serverConfig = getServerConfig();
 
+function isSubscriptionManualOnly(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  return normalized === "paused" || normalized === "cancelled";
+}
+
 function readHost(req) {
   const forwardedHost = String(req.headers["x-forwarded-host"] || "")
     .split(",")[0]
@@ -84,6 +89,10 @@ async function getTenantSubscription(tenantId) {
       status: row?.mp_subscription_status || "",
       startedAt: row?.mp_subscription_started_at || null,
       updatedAt: row?.mp_subscription_updated_at || null,
+      manualOnly: isSubscriptionManualOnly(row?.mp_subscription_status),
+      manualOnlyReason: isSubscriptionManualOnly(row?.mp_subscription_status)
+        ? "subscription_paused_or_cancelled"
+        : "",
       active:
         !!row?.mp_subscription_id &&
         ["authorized", "active", "pending"].includes(
@@ -92,14 +101,15 @@ async function getTenantSubscription(tenantId) {
     };
   } catch (e) {
     if (e?.code === "ER_BAD_FIELD_ERROR") {
-      return {
-        enabled: false,
-        id: "",
-        status: "",
-        startedAt: null,
-        updatedAt: null,
-        active: false,
-      };
+    return {
+      enabled: false,
+      id: "",
+      status: "",
+      startedAt: null,
+      updatedAt: null,
+      manualOnly: false,
+      active: false,
+    };
     }
     throw e;
   }
@@ -424,7 +434,7 @@ router.get("/public/status", async (req, res) => {
         enabled: !!serverConfig.mpAccessToken,
         provider: "mercado_pago",
         mode:
-          serverConfig.mpBillingMode === "subscription"
+          serverConfig.mpBillingMode === "subscription" && !subscription.manualOnly
             ? "subscription"
             : "checkout",
       },
@@ -453,6 +463,22 @@ async function startMercadoPago(req, res) {
         : serverConfig.mpBillingMode === "subscription"
         ? "subscription"
         : "checkout";
+
+    const currentSubscription = await getTenantSubscription(tenant.id);
+    if (mode === "subscription" && currentSubscription.manualOnly) {
+      const fallbackMonth = getCurrentBillingContext(tenant.timezone).billingMonth;
+      const checkout = await createMonthlyCheckout({
+        tenant,
+        requestedMonth: fallbackMonth,
+        backBase,
+        publicApiBase,
+      });
+      return res.json({
+        ...checkout,
+        fallbackFromSubscription: true,
+        fallbackReason: "subscription_paused_or_cancelled",
+      });
+    }
     const origin = readOrigin(req);
     const backBase =
       origin || `https://${tenant.slug}.${serverConfig.tenantBaseDomains?.[0] || "localhost"}`;
