@@ -105,6 +105,33 @@ export default function AdminPage({
     return m;
   }, [services]);
 
+  const billingView = useMemo(() => {
+    const billing = billingInfo?.billing || {};
+    const trial = billingInfo?.trial || {};
+    const inTrial = !!trial?.inWindow;
+    const paid = !!billing?.currentMonthPaid;
+    const isPastDue = !!billing?.isPastDue;
+    const isPaymentWindow = !!billing?.isPaymentWindow;
+
+    let title = "Mes pendiente";
+    if (inTrial) {
+      title = "Período de prueba activo";
+    } else if (paid) {
+      title = "Mes pagado";
+    } else if (!isPaymentWindow && !isPastDue) {
+      title = "Próximo cobro mensual";
+    }
+
+    let subtitle = `Mes ${billing?.billingMonth || "-"} · vence día ${
+      billing?.dueDay || 5
+    } · ARS ${billing?.monthlyFeeArs || 30000}`;
+    if (inTrial) {
+      subtitle = `Prueba gratis activa hasta ${trialEndsLabel} · luego continúa el cobro mensual.`;
+    }
+
+    return { title, subtitle, inTrial };
+  }, [billingInfo]);
+
   useEffect(() => {
     if (session?.role !== "admin") return;
     if (activeBranches.length <= 1) {
@@ -354,14 +381,10 @@ export default function AdminPage({
                   <div className="mt-1 text-base font-semibold text-zinc-100">
                     {billingLoading
                       ? "Cargando estado..."
-                      : billingInfo?.billing?.currentMonthPaid
-                      ? "Mes pagado"
-                      : "Mes pendiente"}
+                      : billingView.title}
                   </div>
                   <div className="mt-1 text-xs text-zinc-400">
-                    Mes {billingInfo?.billing?.billingMonth || "-"} · vence día{" "}
-                    {billingInfo?.billing?.dueDay || 5} · ARS{" "}
-                    {billingInfo?.billing?.monthlyFeeArs || 30000}
+                    {billingView.subtitle}
                   </div>
                 </div>
 
@@ -394,6 +417,7 @@ export default function AdminPage({
 
               {!billingInfo?.billing?.currentMonthPaid &&
               billingInfo?.onlinePayment?.enabled &&
+              !billingView.inTrial &&
               billingInfo?.onlinePayment?.mode !== "subscription" &&
               !billingInfo?.billing?.isPaymentWindow ? (
                 <div className="mt-3 rounded-xl bg-zinc-800/70 px-3 py-2 text-xs text-zinc-300 ring-1 ring-white/10">
@@ -635,3 +659,6 @@ export default function AdminPage({
     </div>
   );
 }
+    const trialEndsLabel = trial?.endsAt
+      ? new Date(String(trial.endsAt).replace(" ", "T")).toLocaleDateString("es-AR")
+      : "-";

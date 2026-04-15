@@ -44,7 +44,22 @@ async function resolveTenant(req) {
   const tenantSlug = headerSlug || hostSlug || serverConfig.defaultTenantSlug;
 
   const [rows] = await pool.query(
-    `SELECT id, slug, name, status, timezone
+    `SELECT id, slug, name, status, timezone,
+            trial_active, trial_starts_at, trial_ends_at,
+            CASE
+              WHEN trial_active = 1
+               AND trial_ends_at IS NOT NULL
+               AND UTC_TIMESTAMP() <= trial_ends_at
+              THEN 1
+              ELSE 0
+            END AS trial_in_window,
+            CASE
+              WHEN trial_active = 1
+               AND trial_ends_at IS NOT NULL
+               AND UTC_TIMESTAMP() > trial_ends_at
+              THEN 1
+              ELSE 0
+            END AS trial_expired
      FROM tenants
      WHERE slug = :slug
      LIMIT 1`,
@@ -368,6 +383,8 @@ router.get("/public/status", async (req, res) => {
 
     const subscription = await getTenantSubscription(tenant.id);
     const billingCtx = getCurrentBillingContext(tenant.timezone);
+    const trialInWindow = Number(tenant.trial_in_window || 0) === 1;
+    const trialExpired = Number(tenant.trial_expired || 0) === 1;
     const [[payment]] = await pool.query(
       `SELECT id, billing_month, amount_ars, payment_method, paid_at
        FROM tenant_billing_payments
@@ -390,9 +407,16 @@ router.get("/public/status", async (req, res) => {
         monthlyFeeArs: BILLING_MONTHLY_FEE_ARS,
         acceptedMethods: PAYMENT_METHODS,
         currentMonthPaid: !!payment,
-        suspendedByPayment: billingCtx.isPastDue && !payment,
+        suspendedByPayment: !trialInWindow && billingCtx.isPastDue && !payment,
         isPastDue: billingCtx.isPastDue,
         isPaymentWindow: billingCtx.isPaymentWindow,
+      },
+      trial: {
+        enabled: Number(tenant.trial_active || 0) === 1,
+        inWindow: trialInWindow,
+        expired: trialExpired,
+        startedAt: tenant.trial_starts_at || null,
+        endsAt: tenant.trial_ends_at || null,
       },
       payment: payment || null,
       subscription,
