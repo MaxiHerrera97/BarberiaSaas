@@ -925,4 +925,543 @@ router.get("/ranking", auth, async (req, res) => {
   }
 });
 
+/**
+ * GET /appointments/cash-summary?date=YYYY-MM-DD&year=2026&month=4&branchId=1
+ * PROTEGIDO: admin y barber
+ * Resumen de caja diaria y mensual basado en turnos finalizados.
+ */
+router.get("/cash-summary", auth, async (req, res) => {
+  try {
+    await autoFinalizeElapsedAppointments(req.tenant.id);
+
+    const role = String(req.user?.role || "").trim().toLowerCase();
+    if (!["admin", "barber"].includes(role)) {
+      return res.status(403).json({ error: "No autorizado" });
+    }
+    if (role === "barber" && !req.user?.barberId) {
+      return res.status(403).json({ error: "Barbero no asociado" });
+    }
+
+    const dateStr = String(req.query?.date || "").trim();
+    const dayRange = startEndOfDayLocalSQL(dateStr);
+    if (!dayRange) return res.status(400).json({ error: "date inválida (YYYY-MM-DD)" });
+
+    const parsedDate = parseMySQLDateTimeLocal(`${dateStr} 00:00:00`);
+    const qYear = Number(req.query?.year) || parsedDate.getFullYear();
+    const qMonth = Number(req.query?.month) || parsedDate.getMonth() + 1;
+    if (!qYear || !qMonth || qMonth < 1 || qMonth > 12) {
+      return res.status(400).json({ error: "Parámetros inválidos (year, month)" });
+    }
+    const branchId = req.query.branchId ? Number(req.query.branchId) : null;
+    if (req.query.branchId !== undefined && (!Number.isInteger(branchId) || branchId <= 0)) {
+      return res.status(400).json({ error: "branchId inválido" });
+    }
+
+    const pad2 = (n) => String(n).padStart(2, "0");
+    const monthStart = `${qYear}-${pad2(qMonth)}-01 00:00:00`;
+    const nextMonth = qMonth === 12 ? 1 : qMonth + 1;
+    const nextYear = qMonth === 12 ? qYear + 1 : qYear;
+    const monthEnd = `${nextYear}-${pad2(nextMonth)}-01 00:00:00`;
+
+    const barberFilter = role === "barber" ? " AND a.barber_id = :barberId " : "";
+    const branchFilter = branchId ? " AND a.branch_id = :branchId " : "";
+    const baseParams = {
+      tenantId: req.tenant.id,
+      ...(branchId ? { branchId } : {}),
+      ...(role === "barber" ? { barberId: Number(req.user.barberId) } : {}),
+    };
+
+    const [dayRows] = await pool.query(
+      `
+      SELECT
+        COUNT(*) AS services_done,
+        COALESCE(SUM(COALESCE(a.service_price_ars_snapshot, s.price_ars)), 0) AS revenue_ars,
+        COALESCE(SUM(
+          COALESCE(
+            a.barber_commission_ars_snapshot,
+            ROUND(COALESCE(a.service_price_ars_snapshot, s.price_ars) * COALESCE(b.commission_pct, 0) / 100)
+          )
+        ), 0) AS commission_ars
+      FROM appointments a
+      LEFT JOIN services s ON s.id = a.service_id
+      LEFT JOIN barbers b ON b.id = a.barber_id
+      WHERE a.tenant_id = :tenantId
+        AND a.status = 'done'
+        AND a.start_at >= :start
+        AND a.start_at < :end
+        ${barberFilter}
+        ${branchFilter}
+      `,
+      {
+        ...baseParams,
+        start: dayRange.start,
+        end: dayRange.end,
+      }
+    );
+
+    const [monthRows] = await pool.query(
+      `
+      SELECT
+        COUNT(*) AS services_done,
+        COALESCE(SUM(COALESCE(a.service_price_ars_snapshot, s.price_ars)), 0) AS revenue_ars,
+        COALESCE(SUM(
+          COALESCE(
+            a.barber_commission_ars_snapshot,
+            ROUND(COALESCE(a.service_price_ars_snapshot, s.price_ars) * COALESCE(b.commission_pct, 0) / 100)
+          )
+        ), 0) AS commission_ars
+      FROM appointments a
+      LEFT JOIN services s ON s.id = a.service_id
+      LEFT JOIN barbers b ON b.id = a.barber_id
+      WHERE a.tenant_id = :tenantId
+        AND a.status = 'done'
+        AND a.start_at >= :start
+        AND a.start_at < :end
+        ${barberFilter}
+        ${branchFilter}
+      `,
+      {
+        ...baseParams,
+        start: monthStart,
+        end: monthEnd,
+      }
+    );
+
+    const [monthByBarberRows] = await pool.query(
+      `
+      SELECT
+        a.barber_id,
+        COALESCE(b.full_name, CONCAT('Barbero ', a.barber_id)) AS barber_name,
+        COUNT(*) AS services_done,
+        COALESCE(SUM(COALESCE(a.service_price_ars_snapshot, s.price_ars)), 0) AS revenue_ars,
+        COALESCE(SUM(
+          COALESCE(
+            a.barber_commission_ars_snapshot,
+            ROUND(COALESCE(a.service_price_ars_snapshot, s.price_ars) * COALESCE(b.commission_pct, 0) / 100)
+          )
+        ), 0) AS commission_ars
+      FROM appointments a
+      LEFT JOIN services s ON s.id = a.service_id
+      LEFT JOIN barbers b ON b.id = a.barber_id
+      WHERE a.tenant_id = :tenantId
+        AND a.status = 'done'
+        AND a.start_at >= :start
+        AND a.start_at < :end
+        ${barberFilter}
+        ${branchFilter}
+      GROUP BY a.barber_id, b.full_name
+      ORDER BY revenue_ars DESC, services_done DESC, barber_name ASC
+      `,
+      {
+        ...baseParams,
+        start: monthStart,
+        end: monthEnd,
+      }
+    );
+
+    const [monthByServiceRows] = await pool.query(
+      `
+      SELECT
+        a.service_id,
+        COALESCE(MAX(a.service_name_snapshot), s.name, CONCAT('Servicio ', a.service_id)) AS service_name,
+        COUNT(*) AS services_done,
+        COALESCE(SUM(COALESCE(a.service_price_ars_snapshot, s.price_ars)), 0) AS revenue_ars
+      FROM appointments a
+      LEFT JOIN services s ON s.id = a.service_id
+      WHERE a.tenant_id = :tenantId
+        AND a.status = 'done'
+        AND a.start_at >= :start
+        AND a.start_at < :end
+        ${barberFilter}
+        ${branchFilter}
+      GROUP BY a.service_id, s.name
+      ORDER BY revenue_ars DESC, services_done DESC, service_name ASC
+      LIMIT 10
+      `,
+      {
+        ...baseParams,
+        start: monthStart,
+        end: monthEnd,
+      }
+    );
+
+    const [dayByBarberRows] = await pool.query(
+      `
+      SELECT
+        a.barber_id,
+        COALESCE(b.full_name, CONCAT('Barbero ', a.barber_id)) AS barber_name,
+        COUNT(*) AS services_done,
+        COALESCE(SUM(COALESCE(a.service_price_ars_snapshot, s.price_ars)), 0) AS revenue_ars,
+        COALESCE(SUM(
+          COALESCE(
+            a.barber_commission_ars_snapshot,
+            ROUND(COALESCE(a.service_price_ars_snapshot, s.price_ars) * COALESCE(b.commission_pct, 0) / 100)
+          )
+        ), 0) AS commission_ars
+      FROM appointments a
+      LEFT JOIN services s ON s.id = a.service_id
+      LEFT JOIN barbers b ON b.id = a.barber_id
+      WHERE a.tenant_id = :tenantId
+        AND a.status = 'done'
+        AND a.start_at >= :start
+        AND a.start_at < :end
+        ${barberFilter}
+        ${branchFilter}
+      GROUP BY a.barber_id, b.full_name
+      ORDER BY revenue_ars DESC, services_done DESC, barber_name ASC
+      `,
+      {
+        ...baseParams,
+        start: dayRange.start,
+        end: dayRange.end,
+      }
+    );
+
+    const [dayByServiceRows] = await pool.query(
+      `
+      SELECT
+        a.service_id,
+        COALESCE(MAX(a.service_name_snapshot), s.name, CONCAT('Servicio ', a.service_id)) AS service_name,
+        COUNT(*) AS services_done,
+        COALESCE(SUM(COALESCE(a.service_price_ars_snapshot, s.price_ars)), 0) AS revenue_ars
+      FROM appointments a
+      LEFT JOIN services s ON s.id = a.service_id
+      WHERE a.tenant_id = :tenantId
+        AND a.status = 'done'
+        AND a.start_at >= :start
+        AND a.start_at < :end
+        ${barberFilter}
+        ${branchFilter}
+      GROUP BY a.service_id, s.name
+      ORDER BY revenue_ars DESC, services_done DESC, service_name ASC
+      LIMIT 10
+      `,
+      {
+        ...baseParams,
+        start: dayRange.start,
+        end: dayRange.end,
+      }
+    );
+
+    const day = dayRows?.[0] || {};
+    const month = monthRows?.[0] || {};
+
+    const branchScopeId = branchId || 0;
+    let closing = {
+      isClosed: false,
+      closureDate: dateStr,
+      branchScopeId,
+      closedAt: null,
+      closedByUser: null,
+      snapshot: null,
+    };
+    try {
+      const [closingRows] = await pool.query(
+        `SELECT c.id, c.closed_at, c.services_done, c.revenue_ars, c.commission_ars,
+                c.by_barber_json, c.by_service_json,
+                u.id AS closed_by_user_id, u.full_name AS closed_by_name
+         FROM tenant_cash_closures c
+         LEFT JOIN users u ON u.id = c.closed_by_user_id
+         WHERE c.tenant_id = :tenantId
+           AND c.closure_date = :closureDate
+           AND c.branch_scope_id = :branchScopeId
+         LIMIT 1`,
+        {
+          tenantId: req.tenant.id,
+          closureDate: dateStr,
+          branchScopeId,
+        }
+      );
+      if (closingRows.length) {
+        const row = closingRows[0];
+        let byBarberSnapshot = [];
+        let byServiceSnapshot = [];
+        try {
+          byBarberSnapshot =
+            typeof row.by_barber_json === "string"
+              ? JSON.parse(row.by_barber_json || "[]")
+              : row.by_barber_json || [];
+          byServiceSnapshot =
+            typeof row.by_service_json === "string"
+              ? JSON.parse(row.by_service_json || "[]")
+              : row.by_service_json || [];
+        } catch {
+          byBarberSnapshot = [];
+          byServiceSnapshot = [];
+        }
+        closing = {
+          isClosed: true,
+          closureDate: dateStr,
+          branchScopeId,
+          closedAt: row.closed_at || null,
+          closedByUser: row.closed_by_user_id
+            ? {
+                id: Number(row.closed_by_user_id),
+                name: row.closed_by_name || "Usuario",
+              }
+            : null,
+          snapshot: {
+            daily: {
+              services_done: Number(row.services_done) || 0,
+              revenue_ars: Number(row.revenue_ars) || 0,
+              commission_ars: Number(row.commission_ars) || 0,
+            },
+            byBarber: byBarberSnapshot,
+            byService: byServiceSnapshot,
+          },
+        };
+      }
+    } catch (e) {
+      if (e?.code !== "ER_NO_SUCH_TABLE") throw e;
+    }
+
+    return res.json({
+      date: dateStr,
+      month: `${qYear}-${pad2(qMonth)}`,
+      daily: {
+        services_done: Number(day.services_done) || 0,
+        revenue_ars: Number(day.revenue_ars) || 0,
+        commission_ars: Number(day.commission_ars) || 0,
+      },
+      monthly: {
+        services_done: Number(month.services_done) || 0,
+        revenue_ars: Number(month.revenue_ars) || 0,
+        commission_ars: Number(month.commission_ars) || 0,
+      },
+      byBarberDay: dayByBarberRows.map((r) => ({
+        barber_id: Number(r.barber_id),
+        barber_name: r.barber_name,
+        services_done: Number(r.services_done) || 0,
+        revenue_ars: Number(r.revenue_ars) || 0,
+        commission_ars: Number(r.commission_ars) || 0,
+      })),
+      byServiceDay: dayByServiceRows.map((r) => ({
+        service_id: Number(r.service_id),
+        service_name: r.service_name,
+        services_done: Number(r.services_done) || 0,
+        revenue_ars: Number(r.revenue_ars) || 0,
+      })),
+      byBarberMonth: monthByBarberRows.map((r) => ({
+        barber_id: Number(r.barber_id),
+        barber_name: r.barber_name,
+        services_done: Number(r.services_done) || 0,
+        revenue_ars: Number(r.revenue_ars) || 0,
+        commission_ars: Number(r.commission_ars) || 0,
+      })),
+      byServiceMonth: monthByServiceRows.map((r) => ({
+        service_id: Number(r.service_id),
+        service_name: r.service_name,
+        services_done: Number(r.services_done) || 0,
+        revenue_ars: Number(r.revenue_ars) || 0,
+      })),
+      closing,
+    });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: "Error generando resumen de caja" });
+  }
+});
+
+/**
+ * POST /appointments/cash-close-day
+ * PROTEGIDO: solo admin
+ * Crea o reescribe (force) el cierre de caja diario.
+ */
+router.post("/cash-close-day", auth, async (req, res) => {
+  try {
+    if (String(req.user?.role || "").trim().toLowerCase() !== "admin") {
+      return res.status(403).json({ error: "Solo admin puede cerrar caja" });
+    }
+
+    const dateStr = String(req.body?.date || "").trim();
+    const dayRange = startEndOfDayLocalSQL(dateStr);
+    if (!dayRange) return res.status(400).json({ error: "date inválida (YYYY-MM-DD)" });
+
+    const branchId = req.body?.branchId ? Number(req.body.branchId) : null;
+    if (req.body?.branchId !== undefined && (!Number.isInteger(branchId) || branchId <= 0)) {
+      return res.status(400).json({ error: "branchId inválido" });
+    }
+    const force = Boolean(req.body?.force);
+    const branchScopeId = branchId || 0;
+
+    const [dayRows] = await pool.query(
+      `
+      SELECT
+        COUNT(*) AS services_done,
+        COALESCE(SUM(COALESCE(a.service_price_ars_snapshot, s.price_ars)), 0) AS revenue_ars,
+        COALESCE(SUM(
+          COALESCE(
+            a.barber_commission_ars_snapshot,
+            ROUND(COALESCE(a.service_price_ars_snapshot, s.price_ars) * COALESCE(b.commission_pct, 0) / 100)
+          )
+        ), 0) AS commission_ars
+      FROM appointments a
+      LEFT JOIN services s ON s.id = a.service_id
+      LEFT JOIN barbers b ON b.id = a.barber_id
+      WHERE a.tenant_id = :tenantId
+        AND a.status = 'done'
+        AND a.start_at >= :start
+        AND a.start_at < :end
+        ${branchId ? " AND a.branch_id = :branchId " : ""}
+      `,
+      {
+        tenantId: req.tenant.id,
+        start: dayRange.start,
+        end: dayRange.end,
+        ...(branchId ? { branchId } : {}),
+      }
+    );
+
+    const [dayByBarberRows] = await pool.query(
+      `
+      SELECT
+        a.barber_id,
+        COALESCE(b.full_name, CONCAT('Barbero ', a.barber_id)) AS barber_name,
+        COUNT(*) AS services_done,
+        COALESCE(SUM(COALESCE(a.service_price_ars_snapshot, s.price_ars)), 0) AS revenue_ars,
+        COALESCE(SUM(
+          COALESCE(
+            a.barber_commission_ars_snapshot,
+            ROUND(COALESCE(a.service_price_ars_snapshot, s.price_ars) * COALESCE(b.commission_pct, 0) / 100)
+          )
+        ), 0) AS commission_ars
+      FROM appointments a
+      LEFT JOIN services s ON s.id = a.service_id
+      LEFT JOIN barbers b ON b.id = a.barber_id
+      WHERE a.tenant_id = :tenantId
+        AND a.status = 'done'
+        AND a.start_at >= :start
+        AND a.start_at < :end
+        ${branchId ? " AND a.branch_id = :branchId " : ""}
+      GROUP BY a.barber_id, b.full_name
+      ORDER BY revenue_ars DESC, services_done DESC, barber_name ASC
+      `,
+      {
+        tenantId: req.tenant.id,
+        start: dayRange.start,
+        end: dayRange.end,
+        ...(branchId ? { branchId } : {}),
+      }
+    );
+
+    const [dayByServiceRows] = await pool.query(
+      `
+      SELECT
+        a.service_id,
+        COALESCE(MAX(a.service_name_snapshot), s.name, CONCAT('Servicio ', a.service_id)) AS service_name,
+        COUNT(*) AS services_done,
+        COALESCE(SUM(COALESCE(a.service_price_ars_snapshot, s.price_ars)), 0) AS revenue_ars
+      FROM appointments a
+      LEFT JOIN services s ON s.id = a.service_id
+      WHERE a.tenant_id = :tenantId
+        AND a.status = 'done'
+        AND a.start_at >= :start
+        AND a.start_at < :end
+        ${branchId ? " AND a.branch_id = :branchId " : ""}
+      GROUP BY a.service_id, s.name
+      ORDER BY revenue_ars DESC, services_done DESC, service_name ASC
+      LIMIT 20
+      `,
+      {
+        tenantId: req.tenant.id,
+        start: dayRange.start,
+        end: dayRange.end,
+        ...(branchId ? { branchId } : {}),
+      }
+    );
+
+    const totals = dayRows?.[0] || {};
+    const byBarber = dayByBarberRows.map((r) => ({
+      barber_id: Number(r.barber_id),
+      barber_name: r.barber_name,
+      services_done: Number(r.services_done) || 0,
+      revenue_ars: Number(r.revenue_ars) || 0,
+      commission_ars: Number(r.commission_ars) || 0,
+    }));
+    const byService = dayByServiceRows.map((r) => ({
+      service_id: Number(r.service_id),
+      service_name: r.service_name,
+      services_done: Number(r.services_done) || 0,
+      revenue_ars: Number(r.revenue_ars) || 0,
+    }));
+
+    try {
+      const [existing] = await pool.query(
+        `SELECT id
+         FROM tenant_cash_closures
+         WHERE tenant_id = :tenantId
+           AND closure_date = :closureDate
+           AND branch_scope_id = :branchScopeId
+         LIMIT 1`,
+        {
+          tenantId: req.tenant.id,
+          closureDate: dateStr,
+          branchScopeId,
+        }
+      );
+
+      if (existing.length && !force) {
+        return res.status(409).json({
+          error: "La caja de ese día ya está cerrada. Usa force=true para recalcular.",
+          code: "CASH_ALREADY_CLOSED",
+        });
+      }
+
+      await pool.query(
+        `INSERT INTO tenant_cash_closures
+         (tenant_id, branch_scope_id, branch_id, closure_date,
+          services_done, revenue_ars, commission_ars,
+          by_barber_json, by_service_json, closed_by_user_id, notes)
+         VALUES
+         (:tenantId, :branchScopeId, :branchId, :closureDate,
+          :servicesDone, :revenueArs, :commissionArs,
+          :byBarberJson, :byServiceJson, :closedByUserId, :notes)
+         ON DUPLICATE KEY UPDATE
+          services_done = VALUES(services_done),
+          revenue_ars = VALUES(revenue_ars),
+          commission_ars = VALUES(commission_ars),
+          by_barber_json = VALUES(by_barber_json),
+          by_service_json = VALUES(by_service_json),
+          closed_by_user_id = VALUES(closed_by_user_id),
+          notes = VALUES(notes),
+          closed_at = CURRENT_TIMESTAMP`,
+        {
+          tenantId: req.tenant.id,
+          branchScopeId,
+          branchId: branchId || null,
+          closureDate: dateStr,
+          servicesDone: Number(totals.services_done) || 0,
+          revenueArs: Number(totals.revenue_ars) || 0,
+          commissionArs: Number(totals.commission_ars) || 0,
+          byBarberJson: JSON.stringify(byBarber),
+          byServiceJson: JSON.stringify(byService),
+          closedByUserId: Number(req.user?.userId || 0) || null,
+          notes: "Cierre diario desde panel admin",
+        }
+      );
+    } catch (e) {
+      if (e?.code === "ER_NO_SUCH_TABLE") {
+        return res.status(500).json({
+          error: "Falta tabla tenant_cash_closures. Ejecuta la migración 015.",
+        });
+      }
+      throw e;
+    }
+
+    return res.json({
+      ok: true,
+      closureDate: dateStr,
+      branchScopeId,
+      totals: {
+        services_done: Number(totals.services_done) || 0,
+        revenue_ars: Number(totals.revenue_ars) || 0,
+        commission_ars: Number(totals.commission_ars) || 0,
+      },
+    });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: "Error cerrando caja del día" });
+  }
+});
+
 module.exports = router;

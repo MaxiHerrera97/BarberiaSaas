@@ -92,6 +92,11 @@ export default function AdminPage({
   const [billingLoading, setBillingLoading] = useState(false);
   const [billingError, setBillingError] = useState("");
   const [startingCheckout, setStartingCheckout] = useState(false);
+  const [cashSummary, setCashSummary] = useState(null);
+  const [cashLoading, setCashLoading] = useState(false);
+  const [cashError, setCashError] = useState("");
+  const [cashClosing, setCashClosing] = useState(false);
+  const [cashMsg, setCashMsg] = useState("");
 
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -108,6 +113,9 @@ export default function AdminPage({
   const billingView = useMemo(() => {
     const billing = billingInfo?.billing || {};
     const trial = billingInfo?.trial || {};
+    const trialEndsLabel = trial?.endsAt
+      ? new Date(String(trial.endsAt).replace(" ", "T")).toLocaleDateString("es-AR")
+      : "-";
     const inTrial = !!trial?.inWindow;
     const paid = !!billing?.currentMonthPaid;
     const isPastDue = !!billing?.isPastDue;
@@ -131,10 +139,81 @@ export default function AdminPage({
 
     return { title, subtitle, inTrial };
   }, [billingInfo]);
+
+  const billingBanner = useMemo(() => {
+    const billing = billingInfo?.billing || {};
+    const trial = billingInfo?.trial || {};
+    const payment = billingInfo?.payment || null;
+    const dueDay = Number(billing?.dueDay || 5);
+    const today = now.getDate();
+
+    if (trial?.inWindow) {
+      const endsLabel = trial?.endsAt
+        ? new Date(String(trial.endsAt).replace(" ", "T")).toLocaleDateString("es-AR")
+        : "-";
+      return {
+        tone: "info",
+        title: "Período de prueba activo",
+        text: `Podés usar todas las funciones hasta el ${endsLabel}. Te recomendamos activar el débito automático para continuar sin cortes.`,
+      };
+    }
+
+    if (billing?.currentMonthPaid) {
+      if (payment?.paid_at) {
+        const paidAt = new Date(String(payment.paid_at).replace(" ", "T"));
+        if (!Number.isNaN(paidAt.getTime())) {
+          const hoursSincePaid = (Date.now() - paidAt.getTime()) / (1000 * 60 * 60);
+          if (hoursSincePaid >= 0 && hoursSincePaid <= 48) {
+            return {
+              tone: "success",
+              title: "Pago acreditado",
+              text: "Tu servicio está activo y al día. Gracias por mantener tu cuenta al corriente.",
+            };
+          }
+        }
+      }
+      return null;
+    }
+
+    if (billing?.isPaymentWindow) {
+      if (today === dueDay) {
+        return {
+          tone: "warning",
+          title: "Hoy vence tu pago mensual",
+          text: "Si no abonás hoy, tu servicio puede suspenderse. Realizá el pago para evitar interrupciones.",
+        };
+      }
+
+      return {
+        tone: "warning",
+        title: "Mes pendiente de pago",
+        text: `Recordatorio: podés abonar del día 1 al ${dueDay} para mantener el servicio activo.`,
+      };
+    }
+
+    if (!billing?.isPaymentWindow && !billing?.isPastDue) {
+      return {
+        tone: "info",
+        title: "Próximo cobro mensual",
+        text: "Tu próximo período de pago todavía no abrió. Te avisaremos cuando esté habilitado.",
+      };
+    }
+
+    return null;
+  }, [billingInfo, now]);
   const manualOnlySubscription = !!billingInfo?.subscription?.manualOnly;
   const effectiveOnlinePaymentMode = manualOnlySubscription
     ? "checkout"
     : billingInfo?.onlinePayment?.mode;
+  const dayCashSource = cashSummary?.closing?.isClosed
+    ? cashSummary?.closing?.snapshot?.daily || cashSummary?.daily || {}
+    : cashSummary?.daily || {};
+  const dayByBarberSource = cashSummary?.closing?.isClosed
+    ? cashSummary?.closing?.snapshot?.byBarber || cashSummary?.byBarberDay || []
+    : cashSummary?.byBarberDay || [];
+  const dayByServiceSource = cashSummary?.closing?.isClosed
+    ? cashSummary?.closing?.snapshot?.byService || cashSummary?.byServiceDay || []
+    : cashSummary?.byServiceDay || [];
 
   useEffect(() => {
     if (session?.role !== "admin") return;
@@ -233,6 +312,37 @@ export default function AdminPage({
     };
   }, []);
 
+  useEffect(() => {
+    let alive = true;
+    async function loadCashSummary() {
+      setCashLoading(true);
+      setCashError("");
+      try {
+        const yyyy = date.getFullYear();
+        const mm = date.getMonth() + 1;
+        const branchQuery =
+          session?.role === "admin" && selectedBranchId && selectedBranchId !== "all"
+            ? `&branchId=${selectedBranchId}`
+            : "";
+        const data = await apiFetch(
+          `/appointments/cash-summary?date=${toDateParam(date)}&year=${yyyy}&month=${mm}${branchQuery}`
+        );
+        if (!alive) return;
+        setCashSummary(data || null);
+      } catch (e) {
+        if (!alive) return;
+        setCashError(e.message || "No se pudo cargar caja");
+      } finally {
+        if (alive) setCashLoading(false);
+      }
+    }
+
+    loadCashSummary();
+    return () => {
+      alive = false;
+    };
+  }, [date, selectedBranchId, session?.role]);
+
   async function startMonthlyPayment() {
     if (startingCheckout) return;
     setStartingCheckout(true);
@@ -257,6 +367,52 @@ export default function AdminPage({
       setBillingError(e.message || "No se pudo iniciar el pago online");
     } finally {
       setStartingCheckout(false);
+    }
+  }
+
+  async function closeCashDay(force = false) {
+    if (cashClosing) return;
+    setCashClosing(true);
+    setCashError("");
+    setCashMsg("");
+    try {
+      const branchIdValue =
+        session?.role === "admin" && selectedBranchId && selectedBranchId !== "all"
+          ? Number(selectedBranchId)
+          : null;
+      await apiFetch("/appointments/cash-close-day", {
+        method: "POST",
+        body: {
+          date: toDateParam(date),
+          ...(branchIdValue ? { branchId: branchIdValue } : {}),
+          ...(force ? { force: true } : {}),
+        },
+      });
+
+      const yyyy = date.getFullYear();
+      const mm = date.getMonth() + 1;
+      const branchQuery =
+        session?.role === "admin" && selectedBranchId && selectedBranchId !== "all"
+          ? `&branchId=${selectedBranchId}`
+          : "";
+      const refreshed = await apiFetch(
+        `/appointments/cash-summary?date=${toDateParam(date)}&year=${yyyy}&month=${mm}${branchQuery}`
+      );
+      setCashSummary(refreshed || null);
+      setCashMsg("Caja diaria cerrada correctamente.");
+    } catch (e) {
+      if (e?.code === "CASH_ALREADY_CLOSED") {
+        const overwrite = window.confirm(
+          "La caja de ese día ya estaba cerrada. ¿Querés recalcular y reemplazar el cierre?"
+        );
+        if (overwrite) {
+          setCashClosing(false);
+          return closeCashDay(true);
+        }
+      }
+      setCashError(e.message || "No se pudo cerrar caja del día");
+    } finally {
+      setCashClosing(false);
     }
   }
 
@@ -379,6 +535,22 @@ export default function AdminPage({
 
           {session?.role === "admin" ? (
             <div className="rounded-2xl border border-white/10 bg-zinc-900/40 p-4">
+              {billingBanner ? (
+                <div
+                  className={[
+                    "mb-3 rounded-xl px-3 py-2 text-xs ring-1",
+                    billingBanner.tone === "success"
+                      ? "bg-emerald-500/10 text-emerald-200 ring-emerald-500/30"
+                      : billingBanner.tone === "warning"
+                      ? "bg-amber-500/10 text-amber-200 ring-amber-500/30"
+                      : "bg-sky-500/10 text-sky-200 ring-sky-500/30",
+                  ].join(" ")}
+                >
+                  <div className="font-semibold">{billingBanner.title}</div>
+                  <div className="mt-1">{billingBanner.text}</div>
+                </div>
+              ) : null}
+
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
                   <div className="text-sm text-zinc-400">Suscripción mensual</div>
@@ -436,6 +608,196 @@ export default function AdminPage({
               ) : null}
             </div>
           ) : null}
+
+          <div className="rounded-2xl border border-white/10 bg-zinc-900/40 p-4">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="text-sm text-zinc-400">Caja</div>
+                <div className="text-base font-semibold text-zinc-100">
+                  Resumen diario y mensual
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {cashSummary?.closing?.isClosed ? (
+                  <span className="rounded-lg bg-emerald-500/15 px-2 py-1 text-[11px] font-semibold text-emerald-200 ring-1 ring-emerald-500/30">
+                    Caja cerrada
+                  </span>
+                ) : (
+                  <span className="rounded-lg bg-zinc-800 px-2 py-1 text-[11px] font-semibold text-zinc-300 ring-1 ring-white/10">
+                    Caja abierta
+                  </span>
+                )}
+                <div className="text-xs text-zinc-400">
+                  Basado en turnos finalizados
+                </div>
+              </div>
+            </div>
+
+            {session?.role === "admin" ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => closeCashDay(false)}
+                  disabled={cashClosing || cashLoading}
+                  className="rounded-xl bg-zinc-800 px-3 py-2 text-xs font-semibold text-zinc-100 ring-1 ring-white/10 hover:bg-zinc-700 disabled:opacity-60"
+                >
+                  {cashClosing ? "Cerrando..." : "Cerrar caja del día"}
+                </button>
+                {cashSummary?.closing?.isClosed && cashSummary?.closing?.closedAt ? (
+                  <div className="text-xs text-zinc-400">
+                    Cerrada el{" "}
+                    {new Date(String(cashSummary.closing.closedAt).replace(" ", "T")).toLocaleString(
+                      "es-AR"
+                    )}
+                    {cashSummary?.closing?.closedByUser?.name
+                      ? ` por ${cashSummary.closing.closedByUser.name}`
+                      : ""}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {cashMsg ? (
+              <div className="mt-3 rounded-xl bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200 ring-1 ring-emerald-500/30">
+                {cashMsg}
+              </div>
+            ) : null}
+
+            {cashError ? (
+              <div className="mt-3 rounded-xl bg-red-500/10 px-3 py-2 text-xs text-red-200 ring-1 ring-red-500/30">
+                {cashError}
+              </div>
+            ) : null}
+
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <div className="rounded-xl bg-zinc-950/60 p-3 ring-1 ring-white/10">
+                <div className="text-xs text-zinc-400">Hoy</div>
+                <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
+                  <div>
+                    <div className="text-zinc-400 text-xs">Servicios</div>
+                    <div className="font-semibold text-zinc-100">
+                      {cashLoading ? "..." : Number(dayCashSource?.services_done || 0)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-zinc-400 text-xs">Facturación</div>
+                    <div className="font-semibold text-emerald-300">
+                      {cashLoading
+                        ? "..."
+                        : new Intl.NumberFormat("es-AR", {
+                            style: "currency",
+                            currency: "ARS",
+                            maximumFractionDigits: 0,
+                          }).format(Number(dayCashSource?.revenue_ars || 0))}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-zinc-400 text-xs">Comisión</div>
+                    <div className="font-semibold text-cyan-300">
+                      {cashLoading
+                        ? "..."
+                        : new Intl.NumberFormat("es-AR", {
+                            style: "currency",
+                            currency: "ARS",
+                            maximumFractionDigits: 0,
+                          }).format(Number(dayCashSource?.commission_ars || 0))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-zinc-950/60 p-3 ring-1 ring-white/10">
+                <div className="text-xs text-zinc-400">Mes actual</div>
+                <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
+                  <div>
+                    <div className="text-zinc-400 text-xs">Servicios</div>
+                    <div className="font-semibold text-zinc-100">
+                      {cashLoading ? "..." : Number(cashSummary?.monthly?.services_done || 0)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-zinc-400 text-xs">Facturación</div>
+                    <div className="font-semibold text-emerald-300">
+                      {cashLoading
+                        ? "..."
+                        : new Intl.NumberFormat("es-AR", {
+                            style: "currency",
+                            currency: "ARS",
+                            maximumFractionDigits: 0,
+                          }).format(Number(cashSummary?.monthly?.revenue_ars || 0))}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-zinc-400 text-xs">Comisión</div>
+                    <div className="font-semibold text-cyan-300">
+                      {cashLoading
+                        ? "..."
+                        : new Intl.NumberFormat("es-AR", {
+                            style: "currency",
+                            currency: "ARS",
+                            maximumFractionDigits: 0,
+                          }).format(Number(cashSummary?.monthly?.commission_ars || 0))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+              <div className="rounded-xl bg-zinc-950/60 p-3 ring-1 ring-white/10">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                  Por barbero (día)
+                </div>
+                {!cashLoading && !dayByBarberSource.length ? (
+                  <div className="text-xs text-zinc-400">Sin datos para el período.</div>
+                ) : (
+                  <div className="space-y-1 text-xs">
+                    {dayByBarberSource.map((row) => (
+                      <div
+                        key={row.barber_id}
+                        className="flex items-center justify-between rounded-lg bg-zinc-900/60 px-2 py-1 ring-1 ring-white/10"
+                      >
+                        <div className="truncate pr-2 text-zinc-200">{row.barber_name}</div>
+                        <div className="shrink-0 font-semibold text-emerald-300">
+                          {new Intl.NumberFormat("es-AR", {
+                            style: "currency",
+                            currency: "ARS",
+                            maximumFractionDigits: 0,
+                          }).format(Number(row.revenue_ars || 0))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-xl bg-zinc-950/60 p-3 ring-1 ring-white/10">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                  Servicios top (día)
+                </div>
+                {!cashLoading && !dayByServiceSource.length ? (
+                  <div className="text-xs text-zinc-400">Sin datos para el período.</div>
+                ) : (
+                  <div className="space-y-1 text-xs">
+                    {dayByServiceSource.map((row) => (
+                      <div
+                        key={row.service_id}
+                        className="flex items-center justify-between rounded-lg bg-zinc-900/60 px-2 py-1 ring-1 ring-white/10"
+                      >
+                        <div className="truncate pr-2 text-zinc-200">{row.service_name}</div>
+                        <div className="shrink-0 font-semibold text-amber-300">
+                          {new Intl.NumberFormat("es-AR", {
+                            style: "currency",
+                            currency: "ARS",
+                            maximumFractionDigits: 0,
+                          }).format(Number(row.revenue_ars || 0))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
 
           <div className="sticky top-[74px] z-30 rounded-2xl border border-white/10 bg-zinc-950/80 p-3 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur">
             <div className="mx-auto flex w-full max-w-[980px] flex-col items-stretch gap-3 xl:flex-row xl:items-end xl:justify-center xl:gap-2">
@@ -669,6 +1031,3 @@ export default function AdminPage({
     </div>
   );
 }
-    const trialEndsLabel = trial?.endsAt
-      ? new Date(String(trial.endsAt).replace(" ", "T")).toLocaleDateString("es-AR")
-      : "-";
