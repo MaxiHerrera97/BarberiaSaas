@@ -111,7 +111,7 @@ function SuspendedPage({ message, billing }) {
     setPaying(true);
     setPayError("");
     try {
-      const data = await apiFetch("/billing/public/mercadopago/checkout", {
+      const data = await apiFetch("/billing/public/mercadopago/start", {
         method: "POST",
         body: {
           billingMonth: billing?.billingMonth,
@@ -151,7 +151,11 @@ function SuspendedPage({ message, billing }) {
               disabled={paying}
               className="rounded-xl bg-amber-400 px-5 py-3 text-sm font-semibold text-zinc-950 hover:bg-amber-300 disabled:opacity-60"
             >
-              {paying ? "Redirigiendo al pago..." : "Pagar mes ahora"}
+              {paying
+                ? "Redirigiendo al pago..."
+                : billing?.onlinePaymentMode === "subscription"
+                ? "Activar débito automático"
+                : "Pagar mes ahora"}
             </button>
           </div>
         ) : null}

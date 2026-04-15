@@ -93,6 +93,8 @@ async function resolveTenant(req, res, next) {
           dueDay: BILLING_WINDOW_END_DAY,
           acceptedMethods: PAYMENT_METHODS,
           canPayOnline: !!serverConfig.mpAccessToken,
+          onlinePaymentMode:
+            serverConfig.mpBillingMode === "subscription" ? "subscription" : "checkout",
         },
       });
     }
@@ -130,10 +132,12 @@ async function resolveTenant(req, res, next) {
             monthlyFeeArs: BILLING_MONTHLY_FEE_ARS,
             billingMonth: billingContext.billingMonth,
             dueDay: BILLING_WINDOW_END_DAY,
-            acceptedMethods: PAYMENT_METHODS,
-            canPayOnline: !!serverConfig.mpAccessToken,
-          },
-        });
+          acceptedMethods: PAYMENT_METHODS,
+          canPayOnline: !!serverConfig.mpAccessToken,
+          onlinePaymentMode:
+            serverConfig.mpBillingMode === "subscription" ? "subscription" : "checkout",
+        },
+      });
       }
     }
 

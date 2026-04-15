@@ -14,6 +14,10 @@ CREATE TABLE IF NOT EXISTS tenants (
   trial_active TINYINT(1) NOT NULL DEFAULT 0,
   trial_starts_at DATETIME NULL,
   trial_ends_at DATETIME NULL,
+  mp_subscription_id VARCHAR(80) NULL,
+  mp_subscription_status VARCHAR(40) NULL,
+  mp_subscription_started_at DATETIME NULL,
+  mp_subscription_updated_at DATETIME NULL,
   multi_branch_enabled TINYINT(1) NOT NULL DEFAULT 0,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
@@ -52,6 +56,24 @@ CREATE TABLE IF NOT EXISTS tenant_billing_payments (
     FOREIGN KEY (tenant_id) REFERENCES tenants(id)
     ON DELETE CASCADE
     ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS tenant_billing_webhook_events (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  provider VARCHAR(30) NOT NULL,
+  event_key VARCHAR(140) NOT NULL,
+  event_type VARCHAR(40) NOT NULL,
+  event_id VARCHAR(80) NOT NULL,
+  status ENUM('processing', 'processed', 'failed', 'ignored') NOT NULL DEFAULT 'processing',
+  attempts_count INT UNSIGNED NOT NULL DEFAULT 1,
+  last_error VARCHAR(255) NULL,
+  payload_json JSON NULL,
+  processed_at DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_tenant_billing_webhook_event_key (event_key),
+  KEY idx_tenant_billing_webhook_status_created (status, created_at)
 );
 
 CREATE TABLE IF NOT EXISTS platform_audit_logs (

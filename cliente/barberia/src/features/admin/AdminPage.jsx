@@ -207,7 +207,7 @@ export default function AdminPage({
     setStartingCheckout(true);
     setBillingError("");
     try {
-      const data = await apiFetch("/billing/public/mercadopago/checkout", {
+      const data = await apiFetch("/billing/public/mercadopago/start", {
         method: "POST",
         body: {
           billingMonth: billingInfo?.billing?.billingMonth,
@@ -365,18 +365,23 @@ export default function AdminPage({
                   </div>
                 </div>
 
-                {!billingInfo?.billing?.currentMonthPaid &&
+              {!billingInfo?.billing?.currentMonthPaid &&
                 billingInfo?.onlinePayment?.enabled ? (
                   <button
                     onClick={startMonthlyPayment}
                     disabled={
                       startingCheckout ||
                       billingLoading ||
-                      !billingInfo?.billing?.isPaymentWindow
+                      (billingInfo?.onlinePayment?.mode !== "subscription" &&
+                        !billingInfo?.billing?.isPaymentWindow)
                     }
                     className="rounded-xl bg-amber-400 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-amber-300 disabled:opacity-60"
                   >
-                    {startingCheckout ? "Redirigiendo..." : "Pagar mes"}
+                    {startingCheckout
+                      ? "Redirigiendo..."
+                      : billingInfo?.onlinePayment?.mode === "subscription"
+                      ? "Activar débito automático"
+                      : "Pagar mes"}
                   </button>
                 ) : null}
               </div>
@@ -389,6 +394,7 @@ export default function AdminPage({
 
               {!billingInfo?.billing?.currentMonthPaid &&
               billingInfo?.onlinePayment?.enabled &&
+              billingInfo?.onlinePayment?.mode !== "subscription" &&
               !billingInfo?.billing?.isPaymentWindow ? (
                 <div className="mt-3 rounded-xl bg-zinc-800/70 px-3 py-2 text-xs text-zinc-300 ring-1 ring-white/10">
                   El pago online desde este panel se habilita del día 1 al 5 de cada mes.

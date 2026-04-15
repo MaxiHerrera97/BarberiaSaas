@@ -31,6 +31,9 @@ function getServerConfig() {
     jwtExpiresIn: process.env.JWT_EXPIRES_IN || "7d",
     loginRateLimitWindowMs: Number(process.env.LOGIN_RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
     loginRateLimitMaxAttempts: Number(process.env.LOGIN_RATE_LIMIT_MAX_ATTEMPTS) || 5,
+    loginLockWindowMs: Number(process.env.LOGIN_LOCK_WINDOW_MS) || 15 * 60 * 1000,
+    loginLockMaxFailures: Number(process.env.LOGIN_LOCK_MAX_FAILURES) || 8,
+    loginLockDurationMs: Number(process.env.LOGIN_LOCK_DURATION_MS) || 30 * 60 * 1000,
     corsOrigins: (process.env.CORS_ORIGINS || "")
       .split(",")
       .map((s) => s.trim())
@@ -57,6 +60,7 @@ function getServerConfig() {
     r2Region: process.env.R2_REGION || "auto",
     r2KeyPrefix: process.env.R2_KEY_PREFIX || "",
     mpAccessToken: process.env.MP_ACCESS_TOKEN || "",
+    mpBillingMode: (process.env.MP_BILLING_MODE || "checkout").trim().toLowerCase(),
     publicApiBaseUrl: process.env.PUBLIC_API_BASE_URL || "",
   };
 }

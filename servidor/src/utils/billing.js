@@ -29,6 +29,16 @@ function getCurrentBillingContext(timezone, now = new Date()) {
   };
 }
 
+function getBillingMonthFromDate(dateInput, timezone) {
+  const date = dateInput ? new Date(dateInput) : new Date();
+  if (Number.isNaN(date.getTime())) {
+    const fallback = getCurrentBillingContext(timezone);
+    return fallback.billingMonth;
+  }
+  const { year, month } = getDatePartsInTimezone(date, timezone);
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
 function isValidBillingMonth(value) {
   return /^\d{4}-(0[1-9]|1[0-2])$/.test(String(value || "").trim());
 }
@@ -56,6 +66,7 @@ module.exports = {
   BILLING_WINDOW_END_DAY,
   PAYMENT_METHODS,
   getCurrentBillingContext,
+  getBillingMonthFromDate,
   isValidBillingMonth,
   normalizePaymentMethod,
 };

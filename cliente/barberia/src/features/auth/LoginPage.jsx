@@ -12,10 +12,13 @@ export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(false);
 
   async function onSubmit(e) {
     e.preventDefault();
+    if (loading) return;
     setErr("");
+    setLoading(true);
 
     try {
       const data = await apiFetch("/auth/login", {
@@ -37,7 +40,19 @@ export default function LoginPage() {
         typeof location.state?.from === "string" ? location.state.from : "/admin";
       nav(nextPath, { replace: true });
     } catch (e) {
-      setErr(e.message || "Error login");
+      const retryAfterSec = Number(e?.payload?.retryAfterSec || 0);
+      if (e?.status === 423 && retryAfterSec > 0) {
+        const retryMin = Math.max(1, Math.ceil(retryAfterSec / 60));
+        setErr(
+          `Por seguridad, este usuario quedó bloqueado temporalmente. Probá de nuevo en ${retryMin} minuto(s).`
+        );
+      } else if (e?.status === 429) {
+        setErr("Hiciste demasiados intentos. Esperá unos minutos y volvé a intentar.");
+      } else {
+        setErr(e.message || "No se pudo iniciar sesión. Verificá tus datos.");
+      }
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -93,8 +108,8 @@ export default function LoginPage() {
                 </div>
               )}
 
-              <Button type="submit" className="mt-2 w-full py-2.5">
-                Entrar
+              <Button type="submit" className="mt-2 w-full py-2.5" disabled={loading}>
+                {loading ? "Ingresando..." : "Entrar"}
               </Button>
             </form>
           </div>

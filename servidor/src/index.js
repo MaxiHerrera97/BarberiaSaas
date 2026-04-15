@@ -4,7 +4,9 @@ const path = require("path");
 
 require("dotenv").config({ path: path.resolve(__dirname, "..", ".env") });
 const { getServerConfig } = require("./config");
+const { pool } = require("./db");
 const { securityHeaders } = require("./middleware/security");
+const { requestContext } = require("./middleware/observability");
 const { resolveTenant } = require("./middleware/tenant");
 
 const authRoutes = require("./routes/auth.routes");
@@ -18,6 +20,7 @@ const billingPublicRoutes = require("./routes/billing-public.routes");
 
 const app = express();
 const serverConfig = getServerConfig();
+const bootAt = Date.now();
 
 function parseOriginUrl(value) {
   try {
@@ -69,6 +72,7 @@ if (serverConfig.trustProxy) {
 }
 
 app.disable("x-powered-by");
+app.use(requestContext);
 app.use(securityHeaders);
 app.use(
   cors({
@@ -89,7 +93,29 @@ app.use(
 app.use(express.json({ limit: "5mb" }));
 app.use("/uploads", express.static(path.resolve(__dirname, "..", "uploads")));
 
-app.get("/health", (_, res) => res.json({ ok: true }));
+app.get("/health", async (_, res) => {
+  const uptimeSec = Math.floor(process.uptime());
+  let db = { ok: false };
+
+  try {
+    await pool.query("SELECT 1");
+    db = { ok: true };
+  } catch (e) {
+    db = { ok: false, error: e?.code || "DB_ERROR" };
+  }
+
+  const payload = {
+    ok: db.ok,
+    service: "tuestilo-api",
+    env: process.env.NODE_ENV || "development",
+    uptimeSec,
+    startedAt: new Date(bootAt).toISOString(),
+    now: new Date().toISOString(),
+    db,
+  };
+
+  return res.status(db.ok ? 200 : 503).json(payload);
+});
 
 app.use("/platform", platformRoutes);
 app.use("/billing", billingPublicRoutes);

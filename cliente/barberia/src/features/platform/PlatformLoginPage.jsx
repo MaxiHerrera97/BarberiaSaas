@@ -14,6 +14,7 @@ export default function PlatformLoginPage() {
 
   async function onSubmit(e) {
     e.preventDefault();
+    if (loading) return;
     setError("");
     setLoading(true);
     try {
@@ -27,7 +28,17 @@ export default function PlatformLoginPage() {
       });
       nav("/platform", { replace: true });
     } catch (e) {
-      setError(e.message || "No se pudo iniciar sesión");
+      const retryAfterSec = Number(e?.payload?.retryAfterSec || 0);
+      if (e?.status === 423 && retryAfterSec > 0) {
+        const retryMin = Math.max(1, Math.ceil(retryAfterSec / 60));
+        setError(
+          `Acceso bloqueado temporalmente por seguridad. Probá de nuevo en ${retryMin} minuto(s).`
+        );
+      } else if (e?.status === 429) {
+        setError("Demasiados intentos. Esperá unos minutos y volvé a intentar.");
+      } else {
+        setError(e.message || "No se pudo iniciar sesión");
+      }
     } finally {
       setLoading(false);
     }

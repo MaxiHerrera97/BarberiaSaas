@@ -56,6 +56,39 @@ function buildTenantPublicUrl(tenantSlug, baseDomain) {
   return `https://${slug}.${domain}`;
 }
 
+function getOnboardingChecks(onboarding) {
+  const tenantName = String(onboarding?.tenantName || "").trim();
+  const slug = toSlug(onboarding?.tenantSlug || onboarding?.tenantName);
+  const adminName = String(onboarding?.adminName || "").trim();
+  const adminUsername = String(onboarding?.adminUsername || "").trim().toLowerCase();
+  const adminPassword = String(onboarding?.adminPassword || "");
+
+  const checks = [
+    { key: "tenantName", label: "Nombre de barbería", done: tenantName.length >= 3 },
+    { key: "tenantSlug", label: "Subdominio", done: slug.length >= 3 && slug.length <= 80 },
+    { key: "adminName", label: "Nombre del administrador", done: adminName.length >= 3 },
+    {
+      key: "adminUsername",
+      label: "Usuario administrador",
+      done: /^[a-z0-9_.-]{3,60}$/.test(adminUsername),
+    },
+    {
+      key: "adminPassword",
+      label: "Clave segura (mínimo 8 caracteres)",
+      done: adminPassword.length >= 8,
+    },
+  ];
+
+  const doneCount = checks.filter((item) => item.done).length;
+  const canCreate = doneCount === checks.length;
+
+  let step = 1;
+  if (doneCount >= 3) step = 2;
+  if (doneCount === checks.length) step = 3;
+
+  return { checks, doneCount, canCreate, step, slug };
+}
+
 function tenantStatusLabel(status) {
   switch (String(status || "").toLowerCase()) {
     case "active":
@@ -131,6 +164,10 @@ export default function PlatformDashboardPage() {
     return vals.length ? Math.max(...vals, 1) : 1;
   }, [billingMetrics]);
   const firstBaseDomain = platformConfig.tenantBaseDomains?.[0] || "localhost";
+  const onboardingState = useMemo(
+    () => getOnboardingChecks(onboarding),
+    [onboarding]
+  );
 
   useEffect(() => {
     if (!session?.token) {
@@ -658,11 +695,49 @@ export default function PlatformDashboardPage() {
               {(platformConfig.tenantBaseDomains || []).join(", ")}
             </span>
           </p>
+
+          <div className="mb-3 rounded-xl bg-zinc-950/70 p-3 ring-1 ring-white/10">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-300">
+                Asistente de alta
+              </div>
+              <div className="text-xs text-zinc-400">
+                Paso {onboardingState.step} de 3 · {onboardingState.doneCount}/
+                {onboardingState.checks.length} completos
+              </div>
+            </div>
+            <div className="mt-2 grid gap-1 md:grid-cols-2">
+              {onboardingState.checks.map((item) => (
+                <div
+                  key={item.key}
+                  className={[
+                    "rounded-lg px-2 py-1 text-xs",
+                    item.done
+                      ? "bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-500/30"
+                      : "bg-zinc-900 text-zinc-400 ring-1 ring-white/10",
+                  ].join(" ")}
+                >
+                  {item.done ? "Listo" : "Pendiente"} · {item.label}
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="grid gap-2 md:grid-cols-4">
             <input
               value={onboarding.tenantName}
               onChange={(e) =>
-                setOnboarding((prev) => ({ ...prev, tenantName: e.target.value }))
+                setOnboarding((prev) => {
+                  const nextName = e.target.value;
+                  const next = { ...prev, tenantName: nextName };
+                  if (!String(prev.tenantSlug || "").trim()) {
+                    next.tenantSlug = toSlug(nextName);
+                  }
+                  if (!String(prev.adminUsername || "").trim()) {
+                    next.adminUsername = suggestUsernameFromName(nextName);
+                  }
+                  return next;
+                })
               }
               placeholder="Nombre barbería"
               className="rounded-xl bg-zinc-950 px-3 py-2 text-sm ring-1 ring-white/10"
@@ -678,7 +753,14 @@ export default function PlatformDashboardPage() {
             <input
               value={onboarding.adminName}
               onChange={(e) =>
-                setOnboarding((prev) => ({ ...prev, adminName: e.target.value }))
+                setOnboarding((prev) => {
+                  const nextAdminName = e.target.value;
+                  const next = { ...prev, adminName: nextAdminName };
+                  if (!String(prev.adminUsername || "").trim()) {
+                    next.adminUsername = suggestUsernameFromName(nextAdminName);
+                  }
+                  return next;
+                })
               }
               placeholder="Nombre admin"
               className="rounded-xl bg-zinc-950 px-3 py-2 text-sm ring-1 ring-white/10"
@@ -724,16 +806,16 @@ export default function PlatformDashboardPage() {
             />
             <button
               onClick={createTenant}
-              disabled={onboardingLoading}
+              disabled={onboardingLoading || !onboardingState.canCreate}
               className="rounded-xl bg-amber-400 px-4 py-2 text-sm font-semibold text-zinc-950 disabled:opacity-60"
             >
-              {onboardingLoading ? "Creando..." : "Crear barbería"}
+              {onboardingLoading ? "Creando..." : "Crear barbería y acceso admin"}
             </button>
           </div>
           <div className="mt-2 text-xs text-zinc-400">
             URL estimada:{" "}
             <span className="font-semibold text-zinc-200">
-              https://{toSlug(onboarding.tenantSlug || onboarding.tenantName) || "<slug>"}.
+              https://{onboardingState.slug || "<slug>"}.
               {platformConfig.tenantBaseDomains?.[0] || "localhost"}
             </span>
           </div>

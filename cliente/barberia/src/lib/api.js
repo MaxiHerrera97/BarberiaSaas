@@ -10,22 +10,33 @@ export function getApiUrl() {
   return API_URL;
 }
 
-export async function apiFetch(path, { token, method = "GET", body } = {}) {
+async function sendJson(path, { token, method = "GET", body, platform = false } = {}) {
   const headers = { "Content-Type": "application/json" };
-  const authToken = token || getToken();
+  const authToken = token || (platform ? getPlatformToken() : getToken());
   if (authToken) headers.Authorization = `Bearer ${authToken}`;
-  if (TENANT_SLUG) headers["X-Tenant-Slug"] = TENANT_SLUG;
+  if (!platform && TENANT_SLUG) headers["X-Tenant-Slug"] = TENANT_SLUG;
 
   if (DEBUG_API) {
-    console.log("API FETCH ->", `${API_URL}${path}`, method);
+    console.log(platform ? "PLATFORM FETCH ->" : "API FETCH ->", `${API_URL}${path}`, method);
   }
 
-  const res = await fetch(`${API_URL}${path}`, {
-    method,
-    headers,
-    credentials: "include",
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      method,
+      headers,
+      credentials: "include",
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    const err = new Error(
+      "No se pudo conectar con el servidor. Revisá la URL de API, CORS y que el backend esté activo."
+    );
+    err.code = "NETWORK_ERROR";
+    err.status = 0;
+    err.payload = null;
+    throw err;
+  }
 
   const data = await res.json().catch(() => null);
 
@@ -41,32 +52,10 @@ export async function apiFetch(path, { token, method = "GET", body } = {}) {
   return data;
 }
 
+export async function apiFetch(path, { token, method = "GET", body } = {}) {
+  return sendJson(path, { token, method, body, platform: false });
+}
+
 export async function platformFetch(path, { token, method = "GET", body } = {}) {
-  const headers = { "Content-Type": "application/json" };
-  const authToken = token || getPlatformToken();
-  if (authToken) headers.Authorization = `Bearer ${authToken}`;
-
-  if (DEBUG_API) {
-    console.log("PLATFORM FETCH ->", `${API_URL}${path}`, method);
-  }
-
-  const res = await fetch(`${API_URL}${path}`, {
-    method,
-    headers,
-    credentials: "include",
-    body: body ? JSON.stringify(body) : undefined,
-  });
-
-  const data = await res.json().catch(() => null);
-
-  if (!res.ok) {
-    const msg = data?.error || `HTTP ${res.status}`;
-    const err = new Error(msg);
-    err.code = data?.code || "";
-    err.status = res.status;
-    err.payload = data || null;
-    throw err;
-  }
-
-  return data;
+  return sendJson(path, { token, method, body, platform: true });
 }

@@ -5,6 +5,7 @@ const { pool } = require("../db");
 const { getServerConfig } = require("../config");
 const { isValidSlug, normalizeSlug, sanitizeName } = require("../utils/onboarding");
 const { auditLog, extractRequestIp } = require("../utils/audit");
+const { createRateLimiter, createLoginAttemptGuard } = require("../middleware/rateLimit");
 const {
   BILLING_MONTHLY_FEE_ARS,
   BILLING_WINDOW_END_DAY,
@@ -16,6 +17,26 @@ const {
 
 const router = express.Router();
 const serverConfig = getServerConfig();
+
+const platformLoginRateLimiter = createRateLimiter({
+  windowMs: serverConfig.loginRateLimitWindowMs,
+  maxAttempts: serverConfig.loginRateLimitMaxAttempts,
+  keyFn: (req) => {
+    const username = String(req.body?.username || "").trim().toLowerCase() || "unknown";
+    return `platform:${extractRequestIp(req)}:${username}`;
+  },
+  message: "Demasiados intentos de ingreso. Espera unos minutos e intenta nuevamente.",
+});
+
+const platformLoginAttemptGuard = createLoginAttemptGuard({
+  windowMs: serverConfig.loginLockWindowMs,
+  maxFailures: serverConfig.loginLockMaxFailures,
+  lockMs: serverConfig.loginLockDurationMs,
+  keyFn: (req) => {
+    const username = String(req.body?.username || "").trim().toLowerCase() || "unknown";
+    return `platform:${extractRequestIp(req)}:${username}`;
+  },
+});
 
 async function writePlatformAudit({ actorUsername, action, tenantId = null, targetUserId = null, details = null }) {
   try {
@@ -102,7 +123,7 @@ function requirePlatformToken(req, res, next) {
   return next();
 }
 
-router.post("/auth/login", async (req, res) => {
+router.post("/auth/login", platformLoginRateLimiter, platformLoginAttemptGuard.middleware, async (req, res) => {
   try {
     const username = String(req.body?.username || "").trim();
     const password = String(req.body?.password || "");
@@ -115,10 +136,12 @@ router.post("/auth/login", async (req, res) => {
       username !== serverConfig.platformAdminUsername ||
       password !== serverConfig.platformAdminPassword
     ) {
+      platformLoginAttemptGuard.registerFailure(req);
       return res.status(401).json({ error: "Credenciales inválidas" });
     }
 
     const token = signPlatformToken(username);
+    platformLoginAttemptGuard.registerSuccess(req);
     auditLog("platform.auth.login.success", {
       username,
       ip: extractRequestIp(req),

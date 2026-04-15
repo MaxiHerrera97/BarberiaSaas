@@ -3,7 +3,7 @@ const bcrypt = require("bcrypt");
 const { pool } = require("../db");
 const { getServerConfig } = require("../config");
 const { auth } = require("../middleware/auth");
-const { createRateLimiter } = require("../middleware/rateLimit");
+const { createRateLimiter, createLoginAttemptGuard } = require("../middleware/rateLimit");
 const {
   attachSessionCookie,
   clearSessionCookie,
@@ -26,7 +26,18 @@ const loginRateLimiter = createRateLimiter({
   message: "Demasiados intentos de login. Espera unos minutos e intenta nuevamente.",
 });
 
-router.post("/login", loginRateLimiter, async (req, res) => {
+const loginAttemptGuard = createLoginAttemptGuard({
+  windowMs: serverConfig.loginLockWindowMs,
+  maxFailures: serverConfig.loginLockMaxFailures,
+  lockMs: serverConfig.loginLockDurationMs,
+  keyFn: (req) => {
+    const username = String(req.body?.username || "").trim().toLowerCase() || "unknown";
+    const tenantId = req.tenant?.id || "unknown-tenant";
+    return `${tenantId}:${extractRequestIp(req)}:${username}`;
+  },
+});
+
+router.post("/login", loginRateLimiter, loginAttemptGuard.middleware, async (req, res) => {
   try {
     const username = String(req.body?.username || "").trim();
     const password = String(req.body?.password || "");
@@ -45,6 +56,7 @@ router.post("/login", loginRateLimiter, async (req, res) => {
     );
 
     if (!rows.length) {
+      loginAttemptGuard.registerFailure(req);
       auditLog("auth.login.failed", {
         username,
         reason: "user_not_found",
@@ -55,6 +67,7 @@ router.post("/login", loginRateLimiter, async (req, res) => {
     }
     const u = rows[0];
     if (!u.is_active) {
+      loginAttemptGuard.registerFailure(req);
       auditLog("auth.login.blocked", {
         username,
         reason: "user_disabled",
@@ -67,6 +80,7 @@ router.post("/login", loginRateLimiter, async (req, res) => {
 
     const ok = await bcrypt.compare(password, u.password_hash);
     if (!ok) {
+      loginAttemptGuard.registerFailure(req);
       auditLog("auth.login.failed", {
         username,
         reason: "invalid_password",
@@ -78,6 +92,7 @@ router.post("/login", loginRateLimiter, async (req, res) => {
     }
 
     await pool.query(`UPDATE users SET last_login_at = NOW() WHERE id = :id`, { id: u.id });
+    loginAttemptGuard.registerSuccess(req);
 
     const token = signSessionToken(u);
     attachSessionCookie(res, token);
