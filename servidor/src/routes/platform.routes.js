@@ -645,7 +645,6 @@ router.get("/billing/metrics", requirePlatformAccess, async (req, res) => {
     const overdueTenants = [];
     const dueTodayTenants = [];
     const dueTomorrowTenants = [];
-    const now = new Date();
     for (const tenant of tenants) {
       const ctx = getCurrentBillingContext(tenant.timezone);
       const inCurrentMonth = ctx.billingMonth === targetMonth;
