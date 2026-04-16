@@ -141,6 +141,7 @@ export default function PlatformDashboardPage() {
   const [loadingAudit, setLoadingAudit] = useState(false);
   const [creatingUserTenantId, setCreatingUserTenantId] = useState(0);
   const [newUserByTenant, setNewUserByTenant] = useState({});
+  const [tenantFilter, setTenantFilter] = useState("all");
   const [platformConfig, setPlatformConfig] = useState({
     tenantBaseDomains: ["localhost"],
     defaultPlan: "free",
@@ -159,6 +160,36 @@ export default function PlatformDashboardPage() {
 
   const session = loadPlatformSession();
   const tenants = useMemo(() => overview?.tenants || [], [overview]);
+  const overdueTenantIds = useMemo(
+    () => new Set((billingMetrics?.overdueTenants || []).map((t) => Number(t.id))),
+    [billingMetrics]
+  );
+  const filteredTenants = useMemo(() => {
+    const list = tenants || [];
+    const now = Date.now();
+    const isTrialInWindow = (tenant) => {
+      const enabled = !!tenant?.trial?.enabled;
+      if (!enabled) return false;
+      const endsAtRaw = String(tenant?.trial?.endsAt || "").trim();
+      if (!endsAtRaw) return true;
+      const d = new Date(endsAtRaw.replace(" ", "T"));
+      if (Number.isNaN(d.getTime())) return enabled;
+      return d.getTime() >= now;
+    };
+
+    switch (tenantFilter) {
+      case "active":
+        return list.filter((t) => String(t.status || "").toLowerCase() === "active");
+      case "trial":
+        return list.filter((t) => isTrialInWindow(t));
+      case "suspended":
+        return list.filter((t) => String(t.status || "").toLowerCase() !== "active");
+      case "moroso":
+        return list.filter((t) => overdueTenantIds.has(Number(t.id)));
+      default:
+        return list;
+    }
+  }, [tenants, tenantFilter, overdueTenantIds]);
   const trendMax = useMemo(() => {
     const vals = (billingMetrics?.trend || []).map((t) => Number(t.expectedArs || 0));
     return vals.length ? Math.max(...vals, 1) : 1;
@@ -1015,8 +1046,114 @@ export default function PlatformDashboardPage() {
           </div>
         </section>
 
+        <section className="grid gap-4 lg:grid-cols-2">
+          <article className="rounded-2xl bg-zinc-900/50 p-4 ring-1 ring-white/10">
+            <h3 className="mb-3 text-base font-bold">Vencen hoy</h3>
+            {(billingMetrics?.dueTodayTenants || []).length ? (
+              <div className="space-y-2">
+                {billingMetrics.dueTodayTenants.map((t) => (
+                  <div
+                    key={`today-${t.id}`}
+                    className="rounded-xl bg-zinc-950/70 px-3 py-2 text-sm ring-1 ring-white/10"
+                  >
+                    <div className="font-semibold text-zinc-100">{t.name}</div>
+                    <div className="text-xs text-zinc-400">{t.slug} · mes {t.billingMonth}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-zinc-400">Sin vencimientos para hoy.</div>
+            )}
+          </article>
+
+          <article className="rounded-2xl bg-zinc-900/50 p-4 ring-1 ring-white/10">
+            <h3 className="mb-3 text-base font-bold">Vencen mañana</h3>
+            {(billingMetrics?.dueTomorrowTenants || []).length ? (
+              <div className="space-y-2">
+                {billingMetrics.dueTomorrowTenants.map((t) => (
+                  <div
+                    key={`tomorrow-${t.id}`}
+                    className="rounded-xl bg-zinc-950/70 px-3 py-2 text-sm ring-1 ring-white/10"
+                  >
+                    <div className="font-semibold text-zinc-100">{t.name}</div>
+                    <div className="text-xs text-zinc-400">{t.slug} · mes {t.billingMonth}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-zinc-400">Sin vencimientos para mañana.</div>
+            )}
+          </article>
+        </section>
+
+        <section className="rounded-2xl bg-zinc-900/45 p-4 ring-1 ring-white/10">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div className="text-sm font-bold">Tenants</div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setTenantFilter("all")}
+                className={[
+                  "rounded-lg px-3 py-1.5 text-xs font-semibold",
+                  tenantFilter === "all"
+                    ? "bg-amber-400 text-zinc-950"
+                    : "bg-zinc-800 text-zinc-100",
+                ].join(" ")}
+              >
+                Todos
+              </button>
+              <button
+                onClick={() => setTenantFilter("active")}
+                className={[
+                  "rounded-lg px-3 py-1.5 text-xs font-semibold",
+                  tenantFilter === "active"
+                    ? "bg-amber-400 text-zinc-950"
+                    : "bg-zinc-800 text-zinc-100",
+                ].join(" ")}
+              >
+                Activos
+              </button>
+              <button
+                onClick={() => setTenantFilter("trial")}
+                className={[
+                  "rounded-lg px-3 py-1.5 text-xs font-semibold",
+                  tenantFilter === "trial"
+                    ? "bg-amber-400 text-zinc-950"
+                    : "bg-zinc-800 text-zinc-100",
+                ].join(" ")}
+              >
+                Prueba
+              </button>
+              <button
+                onClick={() => setTenantFilter("suspended")}
+                className={[
+                  "rounded-lg px-3 py-1.5 text-xs font-semibold",
+                  tenantFilter === "suspended"
+                    ? "bg-amber-400 text-zinc-950"
+                    : "bg-zinc-800 text-zinc-100",
+                ].join(" ")}
+              >
+                Suspendidos
+              </button>
+              <button
+                onClick={() => setTenantFilter("moroso")}
+                className={[
+                  "rounded-lg px-3 py-1.5 text-xs font-semibold",
+                  tenantFilter === "moroso"
+                    ? "bg-amber-400 text-zinc-950"
+                    : "bg-zinc-800 text-zinc-100",
+                ].join(" ")}
+              >
+                Morosos
+              </button>
+            </div>
+          </div>
+          <div className="mt-2 text-xs text-zinc-400">
+            Mostrando {filteredTenants.length} de {tenants.length} tenants.
+          </div>
+        </section>
+
         <section className="space-y-3">
-          {tenants.map((tenant) => (
+          {filteredTenants.map((tenant) => (
             <article key={tenant.id} className="rounded-2xl bg-zinc-900/45 p-4 ring-1 ring-white/10">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>

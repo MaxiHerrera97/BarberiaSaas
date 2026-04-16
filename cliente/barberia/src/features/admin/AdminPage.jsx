@@ -96,6 +96,7 @@ export default function AdminPage({
   const [cashLoading, setCashLoading] = useState(false);
   const [cashError, setCashError] = useState("");
   const [cashClosing, setCashClosing] = useState(false);
+  const [cashReopening, setCashReopening] = useState(false);
   const [cashMsg, setCashMsg] = useState("");
   const [commissionSummary, setCommissionSummary] = useState(null);
   const [commissionLoading, setCommissionLoading] = useState(false);
@@ -454,6 +455,119 @@ export default function AdminPage({
     } finally {
       setCashClosing(false);
     }
+  }
+
+  async function reopenCashDay() {
+    if (cashReopening) return;
+    const reason = window.prompt("Motivo de reapertura de caja (mínimo 5 caracteres):", "");
+    if (reason === null) return;
+    if (String(reason || "").trim().length < 5) {
+      setCashError("Debes indicar un motivo de al menos 5 caracteres para reabrir la caja.");
+      return;
+    }
+
+    setCashReopening(true);
+    setCashError("");
+    setCashMsg("");
+    try {
+      const branchIdValue =
+        session?.role === "admin" && selectedBranchId && selectedBranchId !== "all"
+          ? Number(selectedBranchId)
+          : null;
+
+      await apiFetch("/appointments/cash-reopen-day", {
+        method: "POST",
+        body: {
+          date: toDateParam(date),
+          reason: String(reason || "").trim(),
+          ...(branchIdValue ? { branchId: branchIdValue } : {}),
+        },
+      });
+
+      const yyyy = date.getFullYear();
+      const mm = date.getMonth() + 1;
+      const branchQuery =
+        session?.role === "admin" && selectedBranchId && selectedBranchId !== "all"
+          ? `&branchId=${selectedBranchId}`
+          : "";
+      const refreshed = await apiFetch(
+        `/appointments/cash-summary?date=${toDateParam(date)}&year=${yyyy}&month=${mm}${branchQuery}`
+      );
+      setCashSummary(refreshed || null);
+      setCashMsg("Caja reabierta correctamente.");
+    } catch (e) {
+      setCashError(e.message || "No se pudo reabrir caja del día");
+    } finally {
+      setCashReopening(false);
+    }
+  }
+
+  function exportCashCsv(scope = "daily") {
+    const isMonthly = scope === "monthly";
+    const monthLabel = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    const dayLabel = toDateParam(date);
+    const branchLabel =
+      selectedBranchId && selectedBranchId !== "all"
+        ? activeBranches.find((b) => String(b.id) === String(selectedBranchId))?.name ||
+          `Sucursal ${selectedBranchId}`
+        : "Todas las sucursales";
+
+    const totals = isMonthly ? cashSummary?.monthly || {} : dayCashSource || {};
+    const byBarber = isMonthly ? cashSummary?.byBarberMonth || [] : dayByBarberSource || [];
+    const byService = isMonthly ? cashSummary?.byServiceMonth || [] : dayByServiceSource || [];
+
+    if (!byBarber.length && !byService.length && Number(totals?.services_done || 0) <= 0) {
+      setCashError("No hay datos de caja para exportar.");
+      return;
+    }
+
+    const esc = (value) => {
+      const str = String(value ?? "");
+      if (str.includes('"') || str.includes(";") || str.includes("\n")) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    const lines = [
+      ["Reporte", isMonthly ? "Caja mensual" : "Caja diaria"],
+      ["Mes", monthLabel],
+      ["Fecha", dayLabel],
+      ["Sucursal", branchLabel],
+      [],
+      ["Totales", "", ""],
+      ["Servicios", Number(totals?.services_done || 0), ""],
+      ["Facturacion_ARS", Number(totals?.revenue_ars || 0), ""],
+      ["Comision_ARS", Number(totals?.commission_ars || 0), ""],
+      [],
+      ["Por barbero", "", "", ""],
+      ["Barbero", "Servicios", "Facturacion_ARS", "Comision_ARS"],
+      ...byBarber.map((r) => [
+        r.barber_name,
+        Number(r.services_done || 0),
+        Number(r.revenue_ars || 0),
+        Number(r.commission_ars || 0),
+      ]),
+      [],
+      ["Por servicio", "", ""],
+      ["Servicio", "Servicios", "Facturacion_ARS"],
+      ...byService.map((r) => [
+        r.service_name,
+        Number(r.services_done || 0),
+        Number(r.revenue_ars || 0),
+      ]),
+    ];
+
+    const csv = lines.map((line) => line.map(esc).join(";")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `caja-${isMonthly ? monthLabel : dayLabel}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   async function settleCommission(barberId) {
@@ -916,6 +1030,29 @@ export default function AdminPage({
                   className="rounded-xl bg-zinc-800 px-3 py-2 text-xs font-semibold text-zinc-100 ring-1 ring-white/10 hover:bg-zinc-700 disabled:opacity-60"
                 >
                   {cashClosing ? "Cerrando..." : "Cerrar caja del día"}
+                </button>
+                {cashSummary?.closing?.isClosed ? (
+                  <button
+                    onClick={reopenCashDay}
+                    disabled={cashReopening || cashLoading}
+                    className="rounded-xl bg-zinc-800 px-3 py-2 text-xs font-semibold text-zinc-100 ring-1 ring-white/10 hover:bg-zinc-700 disabled:opacity-60"
+                  >
+                    {cashReopening ? "Reabriendo..." : "Reabrir caja"}
+                  </button>
+                ) : null}
+                <button
+                  onClick={() => exportCashCsv("daily")}
+                  disabled={cashLoading}
+                  className="rounded-xl bg-zinc-800 px-3 py-2 text-xs font-semibold text-zinc-100 ring-1 ring-white/10 hover:bg-zinc-700 disabled:opacity-60"
+                >
+                  Exportar caja diaria (CSV)
+                </button>
+                <button
+                  onClick={() => exportCashCsv("monthly")}
+                  disabled={cashLoading}
+                  className="rounded-xl bg-zinc-800 px-3 py-2 text-xs font-semibold text-zinc-100 ring-1 ring-white/10 hover:bg-zinc-700 disabled:opacity-60"
+                >
+                  Exportar caja mensual (CSV)
                 </button>
                 {!cashLoading && !canCloseCashDay ? (
                   <div className="text-xs text-zinc-500">

@@ -632,19 +632,50 @@ router.get("/billing/metrics", requirePlatformAccess, async (req, res) => {
       });
     }
 
+    const [monthPaidRows] = await pool.query(
+      `SELECT tenant_id
+       FROM tenant_billing_payments
+       WHERE billing_month = :billingMonth`,
+      { billingMonth: targetMonth }
+    );
+    const paidTenantIdSet = new Set(
+      (monthPaidRows || []).map((r) => Number(r.tenant_id)).filter((n) => Number.isInteger(n))
+    );
+
     const overdueTenants = [];
+    const dueTodayTenants = [];
+    const dueTomorrowTenants = [];
+    const now = new Date();
     for (const tenant of tenants) {
       const ctx = getCurrentBillingContext(tenant.timezone);
-      if (!ctx.isPastDue || ctx.billingMonth !== targetMonth) continue;
-      const [[tenantPaid]] = await pool.query(
-        `SELECT id
-         FROM tenant_billing_payments
-         WHERE tenant_id = :tenantId
-           AND billing_month = :billingMonth
-         LIMIT 1`,
-        { tenantId: tenant.id, billingMonth: targetMonth }
-      );
-      if (tenantPaid) continue;
+      const inCurrentMonth = ctx.billingMonth === targetMonth;
+      const hasPayment = paidTenantIdSet.has(Number(tenant.id));
+      const trialEnabled = Number(tenant.trial_active || 0) === 1;
+      const trialEndsAt = parseMySqlDateTime(tenant.trial_ends_at);
+      const trialInWindow =
+        trialEnabled && (!trialEndsAt || trialEndsAt.getTime() >= now.getTime());
+      const isChargeableUnpaid = !trialInWindow && !hasPayment;
+      if (!inCurrentMonth || !isChargeableUnpaid) continue;
+
+      if (Number(ctx.dayOfMonth || 0) === BILLING_WINDOW_END_DAY) {
+        dueTodayTenants.push({
+          id: tenant.id,
+          slug: tenant.slug,
+          name: tenant.name,
+          status: tenant.status,
+          billingMonth: targetMonth,
+        });
+      } else if (Number(ctx.dayOfMonth || 0) === BILLING_WINDOW_END_DAY - 1) {
+        dueTomorrowTenants.push({
+          id: tenant.id,
+          slug: tenant.slug,
+          name: tenant.name,
+          status: tenant.status,
+          billingMonth: targetMonth,
+        });
+      }
+
+      if (!ctx.isPastDue) continue;
       overdueTenants.push({
         id: tenant.id,
         slug: tenant.slug,
@@ -680,6 +711,8 @@ router.get("/billing/metrics", requirePlatformAccess, async (req, res) => {
       },
       methods: Object.values(byMethod),
       trend,
+      dueTodayTenants,
+      dueTomorrowTenants,
       overdueTenants,
     });
   } catch (e) {

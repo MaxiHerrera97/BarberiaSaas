@@ -1510,6 +1510,83 @@ router.post("/cash-close-day", auth, async (req, res) => {
 });
 
 /**
+ * POST /appointments/cash-reopen-day
+ * PROTEGIDO: solo admin
+ * Reabre una caja cerrada (elimina snapshot) y exige motivo.
+ */
+router.post("/cash-reopen-day", auth, async (req, res) => {
+  try {
+    if (String(req.user?.role || "").trim().toLowerCase() !== "admin") {
+      return res.status(403).json({ error: "Solo admin puede reabrir caja" });
+    }
+
+    const dateStr = String(req.body?.date || "").trim();
+    const dayRange = startEndOfDayLocalSQL(dateStr);
+    if (!dayRange) return res.status(400).json({ error: "date inválida (YYYY-MM-DD)" });
+
+    const branchId = req.body?.branchId ? Number(req.body.branchId) : null;
+    if (req.body?.branchId !== undefined && (!Number.isInteger(branchId) || branchId <= 0)) {
+      return res.status(400).json({ error: "branchId inválido" });
+    }
+    const reason = String(req.body?.reason || "").trim();
+    if (reason.length < 5) {
+      return res.status(400).json({
+        error: "Debes indicar un motivo de al menos 5 caracteres para reabrir la caja.",
+      });
+    }
+
+    const branchScopeId = branchId || 0;
+    let deleted = 0;
+    try {
+      const [del] = await pool.query(
+        `DELETE FROM tenant_cash_closures
+         WHERE tenant_id = :tenantId
+           AND closure_date = :closureDate
+           AND branch_scope_id = :branchScopeId`,
+        {
+          tenantId: req.tenant.id,
+          closureDate: dateStr,
+          branchScopeId,
+        }
+      );
+      deleted = Number(del?.affectedRows || 0);
+    } catch (e) {
+      if (e?.code === "ER_NO_SUCH_TABLE") {
+        return res.status(500).json({
+          error: "Falta tabla tenant_cash_closures. Ejecuta la migración 015.",
+        });
+      }
+      throw e;
+    }
+
+    if (!deleted) {
+      return res.status(404).json({
+        error: "No existe un cierre de caja para esa fecha/sucursal.",
+      });
+    }
+
+    console.info("[cash-reopen-day]", {
+      tenantId: req.tenant.id,
+      userId: req.user?.userId || null,
+      branchScopeId,
+      date: dateStr,
+      reason,
+    });
+
+    return res.json({
+      ok: true,
+      reopened: true,
+      closureDate: dateStr,
+      branchScopeId,
+      reason,
+    });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: "Error reabriendo caja del día" });
+  }
+});
+
+/**
  * GET /appointments/commissions-summary?year=2026&month=4&branchId=1
  * PROTEGIDO: solo admin
  * Resumen de comisiones del mes por barbero + estado de liquidación.
