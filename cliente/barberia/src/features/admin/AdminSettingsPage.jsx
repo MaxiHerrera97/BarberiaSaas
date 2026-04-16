@@ -41,6 +41,8 @@ function emptyHours() {
     close1: i >= 1 && i <= 4 ? "13:00" : i >= 5 ? "14:00" : null,
     open2: i >= 1 && i <= 4 ? "18:00" : i >= 5 ? "16:00" : null,
     close2: i >= 1 && i <= 4 ? "21:30" : i >= 5 ? "22:00" : null,
+    open3: null,
+    close3: null,
   }));
 }
 
@@ -108,6 +110,8 @@ export default function AdminSettingsPage() {
     close1: "",
     open2: "",
     close2: "",
+    open3: "",
+    close3: "",
     note: "",
   });
   const [barberCommissionDraft, setBarberCommissionDraft] = useState({});
@@ -382,6 +386,8 @@ export default function AdminSettingsPage() {
           close1: newBarberException.close1 || null,
           open2: newBarberException.open2 || null,
           close2: newBarberException.close2 || null,
+          open3: newBarberException.open3 || null,
+          close3: newBarberException.close3 || null,
           note: newBarberException.note || "",
         },
       });
@@ -392,6 +398,8 @@ export default function AdminSettingsPage() {
         close1: "",
         open2: "",
         close2: "",
+        open3: "",
+        close3: "",
         note: "",
       });
       await reloadAll();
@@ -1226,7 +1234,7 @@ export default function AdminSettingsPage() {
                 {selectedBarberWeekly.map((h, idx) => (
                   <div
                     key={`barber-weekly-${h.dayOfWeek}`}
-                    className="grid gap-2 rounded-xl bg-zinc-900/30 p-3 md:grid-cols-7 md:items-center"
+                    className="grid gap-2 rounded-xl bg-zinc-900/30 p-3 md:grid-cols-9 md:items-center"
                   >
                     <div className="font-medium md:col-span-2">{DAY_LABELS[idx]}</div>
                     <label className="text-sm">
@@ -1285,6 +1293,28 @@ export default function AdminSettingsPage() {
                         setSelectedBarberWeekly(next);
                       }}
                     />
+                    <input
+                      disabled={h.isClosed}
+                      type="time"
+                      className="w-full rounded bg-zinc-900 px-2 py-1 disabled:opacity-40"
+                      value={h.open3 || ""}
+                      onChange={(e) => {
+                        const next = [...selectedBarberWeekly];
+                        next[idx] = { ...h, open3: e.target.value };
+                        setSelectedBarberWeekly(next);
+                      }}
+                    />
+                    <input
+                      disabled={h.isClosed}
+                      type="time"
+                      className="w-full rounded bg-zinc-900 px-2 py-1 disabled:opacity-40"
+                      value={h.close3 || ""}
+                      onChange={(e) => {
+                        const next = [...selectedBarberWeekly];
+                        next[idx] = { ...h, close3: e.target.value };
+                        setSelectedBarberWeekly(next);
+                      }}
+                    />
                   </div>
                 ))}
               </div>
@@ -1307,7 +1337,7 @@ export default function AdminSettingsPage() {
                 <p className="text-xs text-zinc-400">
                   Para francos, feriados o cambios puntuales de horario.
                 </p>
-                <div className="grid gap-2 md:grid-cols-4">
+                <div className="grid gap-2 md:grid-cols-6">
                   <input
                     type="date"
                     value={newBarberException.date}
@@ -1363,6 +1393,24 @@ export default function AdminSettingsPage() {
                     className="rounded-xl bg-zinc-900 px-3 py-2 disabled:opacity-40"
                   />
                   <input
+                    type="time"
+                    disabled={newBarberException.isClosed}
+                    value={newBarberException.open3}
+                    onChange={(e) =>
+                      setNewBarberException((prev) => ({ ...prev, open3: e.target.value }))
+                    }
+                    className="rounded-xl bg-zinc-900 px-3 py-2 disabled:opacity-40"
+                  />
+                  <input
+                    type="time"
+                    disabled={newBarberException.isClosed}
+                    value={newBarberException.close3}
+                    onChange={(e) =>
+                      setNewBarberException((prev) => ({ ...prev, close3: e.target.value }))
+                    }
+                    className="rounded-xl bg-zinc-900 px-3 py-2 disabled:opacity-40"
+                  />
+                  <input
                     type="text"
                     placeholder="Nota (opcional)"
                     value={newBarberException.note}
@@ -1398,6 +1446,8 @@ export default function AdminSettingsPage() {
                             ? "• No trabaja"
                             : `• ${ex.open1 || "--:--"}-${ex.close1 || "--:--"}${
                                 ex.open2 && ex.close2 ? ` y ${ex.open2}-${ex.close2}` : ""
+                              }${
+                                ex.open3 && ex.close3 ? ` y ${ex.open3}-${ex.close3}` : ""
                               }`}
                           {ex.note ? ` • ${ex.note}` : ""}
                         </div>

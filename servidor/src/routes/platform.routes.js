@@ -249,12 +249,14 @@ router.post("/tenants/onboard", requirePlatformAccess, async (req, res) => {
         const close1 = day >= 1 && day <= 4 ? "13:00:00" : day >= 5 ? "14:00:00" : null;
         const open2 = day >= 1 && day <= 4 ? "18:00:00" : day >= 5 ? "16:00:00" : null;
         const close2 = day >= 1 && day <= 4 ? "21:30:00" : day >= 5 ? "22:00:00" : null;
+        const open3 = null;
+        const close3 = null;
 
         await conn.query(
           `INSERT INTO business_hours
-           (tenant_id, day_of_week, is_closed, open1, close1, open2, close2)
+           (tenant_id, day_of_week, is_closed, open1, close1, open2, close2, open3, close3)
            VALUES
-           (:tenantId, :dayOfWeek, :isClosed, :open1, :close1, :open2, :close2)`,
+           (:tenantId, :dayOfWeek, :isClosed, :open1, :close1, :open2, :close2, :open3, :close3)`,
           {
             tenantId,
             dayOfWeek: day,
@@ -263,6 +265,8 @@ router.post("/tenants/onboard", requirePlatformAccess, async (req, res) => {
             close1: isClosed ? null : close1,
             open2: isClosed ? null : open2,
             close2: isClosed ? null : close2,
+            open3: isClosed ? null : open3,
+            close3: isClosed ? null : close3,
           }
         );
       }
@@ -1153,7 +1157,7 @@ router.get("/tenants/:tenantId/overview", requirePlatformAccess, async (req, res
     );
 
     const [hours] = await pool.query(
-      `SELECT day_of_week, is_closed, open1, close1, open2, close2
+      `SELECT day_of_week, is_closed, open1, close1, open2, close2, open3, close3
        FROM business_hours
        WHERE tenant_id = :tenantId
        ORDER BY day_of_week ASC`,

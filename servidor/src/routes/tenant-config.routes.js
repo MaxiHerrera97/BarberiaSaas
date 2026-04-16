@@ -28,6 +28,8 @@ function mapBusinessHours(rows) {
       close1: toPublicTime(r.close1),
       open2: toPublicTime(r.open2),
       close2: toPublicTime(r.close2),
+      open3: toPublicTime(r.open3),
+      close3: toPublicTime(r.close3),
     }))
     .sort((a, b) => a.dayOfWeek - b.dayOfWeek);
 }
@@ -40,6 +42,8 @@ function emptyWeeklyHours() {
     close1: null,
     open2: null,
     close2: null,
+    open3: null,
+    close3: null,
   }));
 }
 
@@ -53,6 +57,8 @@ function mapBarberExceptionRows(rows) {
     close1: toPublicTime(r.close1),
     open2: toPublicTime(r.open2),
     close2: toPublicTime(r.close2),
+    open3: toPublicTime(r.open3),
+    close3: toPublicTime(r.close3),
     note: String(r.note || ""),
   }));
 }
@@ -133,7 +139,7 @@ async function getTenantConfig(tenantId) {
   );
 
   const [hoursRows] = await pool.query(
-    `SELECT day_of_week, is_closed, open1, close1, open2, close2
+    `SELECT day_of_week, is_closed, open1, close1, open2, close2, open3, close3
      FROM business_hours
      WHERE tenant_id = :tenantId
      ORDER BY day_of_week ASC`,
@@ -466,6 +472,8 @@ router.put("/business-hours", auth, requireRole("admin"), async (req, res) => {
         const close1 = normalizeTime(h?.close1);
         const open2 = normalizeTime(h?.open2);
         const close2 = normalizeTime(h?.close2);
+        const open3 = normalizeTime(h?.open3);
+        const close3 = normalizeTime(h?.close3);
 
         if (!isClosed && (!open1 || !close1)) {
           await conn.rollback();
@@ -474,15 +482,17 @@ router.put("/business-hours", auth, requireRole("admin"), async (req, res) => {
 
         await conn.query(
           `INSERT INTO business_hours
-           (tenant_id, day_of_week, is_closed, open1, close1, open2, close2)
+           (tenant_id, day_of_week, is_closed, open1, close1, open2, close2, open3, close3)
            VALUES
-           (:tenantId, :dayOfWeek, :isClosed, :open1, :close1, :open2, :close2)
+           (:tenantId, :dayOfWeek, :isClosed, :open1, :close1, :open2, :close2, :open3, :close3)
            ON DUPLICATE KEY UPDATE
              is_closed = VALUES(is_closed),
              open1 = VALUES(open1),
              close1 = VALUES(close1),
              open2 = VALUES(open2),
-             close2 = VALUES(close2)`,
+             close2 = VALUES(close2),
+             open3 = VALUES(open3),
+             close3 = VALUES(close3)`,
           {
             tenantId: req.tenant.id,
             dayOfWeek,
@@ -491,6 +501,8 @@ router.put("/business-hours", auth, requireRole("admin"), async (req, res) => {
             close1: isClosed ? null : close1,
             open2: isClosed ? null : open2,
             close2: isClosed ? null : close2,
+            open3: isClosed ? null : open3,
+            close3: isClosed ? null : close3,
           }
         );
       }
@@ -520,7 +532,7 @@ router.get("/barber-schedules", auth, requireRole("admin"), async (req, res) => 
     );
 
     const [tenantHoursRows] = await pool.query(
-      `SELECT day_of_week, is_closed, open1, close1, open2, close2
+      `SELECT day_of_week, is_closed, open1, close1, open2, close2, open3, close3
        FROM business_hours
        WHERE tenant_id = :tenantId
        ORDER BY day_of_week ASC`,
@@ -532,7 +544,7 @@ router.get("/barber-schedules", auth, requireRole("admin"), async (req, res) => 
     let exceptionRows = [];
     try {
       const [weekly] = await pool.query(
-        `SELECT barber_id, day_of_week, is_closed, open1, close1, open2, close2
+        `SELECT barber_id, day_of_week, is_closed, open1, close1, open2, close2, open3, close3
          FROM barber_business_hours
          WHERE tenant_id = :tenantId`,
         { tenantId: req.tenant.id }
@@ -540,7 +552,7 @@ router.get("/barber-schedules", auth, requireRole("admin"), async (req, res) => 
       weeklyRows = weekly;
 
       const [exceptions] = await pool.query(
-        `SELECT id, barber_id, date_value, is_closed, open1, close1, open2, close2, note
+        `SELECT id, barber_id, date_value, is_closed, open1, close1, open2, close2, open3, close3, note
          FROM barber_schedule_exceptions
          WHERE tenant_id = :tenantId
          ORDER BY date_value DESC, id DESC`,
@@ -566,6 +578,8 @@ router.get("/barber-schedules", auth, requireRole("admin"), async (req, res) => 
         close1: toPublicTime(row.close1),
         open2: toPublicTime(row.open2),
         close2: toPublicTime(row.close2),
+        open3: toPublicTime(row.open3),
+        close3: toPublicTime(row.close3),
       });
     }
 
@@ -635,6 +649,8 @@ router.put("/barber-schedules/:barberId/weekly", auth, requireRole("admin"), asy
         const close1 = normalizeTime(h?.close1);
         const open2 = normalizeTime(h?.open2);
         const close2 = normalizeTime(h?.close2);
+        const open3 = normalizeTime(h?.open3);
+        const close3 = normalizeTime(h?.close3);
         if (!isClosed && (!open1 || !close1)) {
           await conn.rollback();
           return res.status(400).json({ error: "Cada día abierto requiere open1 y close1" });
@@ -642,15 +658,17 @@ router.put("/barber-schedules/:barberId/weekly", auth, requireRole("admin"), asy
 
         await conn.query(
           `INSERT INTO barber_business_hours
-           (tenant_id, barber_id, day_of_week, is_closed, open1, close1, open2, close2)
+           (tenant_id, barber_id, day_of_week, is_closed, open1, close1, open2, close2, open3, close3)
            VALUES
-           (:tenantId, :barberId, :dayOfWeek, :isClosed, :open1, :close1, :open2, :close2)
+           (:tenantId, :barberId, :dayOfWeek, :isClosed, :open1, :close1, :open2, :close2, :open3, :close3)
            ON DUPLICATE KEY UPDATE
              is_closed = VALUES(is_closed),
              open1 = VALUES(open1),
              close1 = VALUES(close1),
              open2 = VALUES(open2),
-             close2 = VALUES(close2)`,
+             close2 = VALUES(close2),
+             open3 = VALUES(open3),
+             close3 = VALUES(close3)`,
           {
             tenantId: req.tenant.id,
             barberId,
@@ -660,6 +678,8 @@ router.put("/barber-schedules/:barberId/weekly", auth, requireRole("admin"), asy
             close1: isClosed ? null : close1,
             open2: isClosed ? null : open2,
             close2: isClosed ? null : close2,
+            open3: isClosed ? null : open3,
+            close3: isClosed ? null : close3,
           }
         );
       }
@@ -694,6 +714,8 @@ router.post("/barber-schedules/:barberId/exceptions", auth, requireRole("admin")
     const close1 = normalizeTime(req.body?.close1);
     const open2 = normalizeTime(req.body?.open2);
     const close2 = normalizeTime(req.body?.close2);
+    const open3 = normalizeTime(req.body?.open3);
+    const close3 = normalizeTime(req.body?.close3);
     const note = String(req.body?.note || "").trim().slice(0, 140);
     if (!isClosed && (!open1 || !close1)) {
       return res.status(400).json({ error: "Excepción abierta requiere open1 y close1" });
@@ -710,15 +732,17 @@ router.post("/barber-schedules/:barberId/exceptions", auth, requireRole("admin")
 
     await pool.query(
       `INSERT INTO barber_schedule_exceptions
-       (tenant_id, barber_id, date_value, is_closed, open1, close1, open2, close2, note)
+       (tenant_id, barber_id, date_value, is_closed, open1, close1, open2, close2, open3, close3, note)
        VALUES
-       (:tenantId, :barberId, :dateValue, :isClosed, :open1, :close1, :open2, :close2, :note)
+       (:tenantId, :barberId, :dateValue, :isClosed, :open1, :close1, :open2, :close2, :open3, :close3, :note)
        ON DUPLICATE KEY UPDATE
          is_closed = VALUES(is_closed),
          open1 = VALUES(open1),
          close1 = VALUES(close1),
          open2 = VALUES(open2),
          close2 = VALUES(close2),
+         open3 = VALUES(open3),
+         close3 = VALUES(close3),
          note = VALUES(note)`,
       {
         tenantId: req.tenant.id,
@@ -729,6 +753,8 @@ router.post("/barber-schedules/:barberId/exceptions", auth, requireRole("admin")
         close1: isClosed ? null : close1,
         open2: isClosed ? null : open2,
         close2: isClosed ? null : close2,
+        open3: isClosed ? null : open3,
+        close3: isClosed ? null : close3,
         note: note || null,
       }
     );

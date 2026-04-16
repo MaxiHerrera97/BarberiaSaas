@@ -144,6 +144,8 @@ CREATE TABLE IF NOT EXISTS business_hours (
   close1 TIME NULL,
   open2 TIME NULL,
   close2 TIME NULL,
+  open3 TIME NULL,
+  close3 TIME NULL,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_business_hours_tenant_day (tenant_id, day_of_week),
@@ -202,7 +204,7 @@ FROM tenants t
 LEFT JOIN tenant_settings s ON s.tenant_id = t.id
 WHERE s.tenant_id IS NULL;
 
-INSERT INTO business_hours (tenant_id, day_of_week, is_closed, open1, close1, open2, close2)
+INSERT INTO business_hours (tenant_id, day_of_week, is_closed, open1, close1, open2, close2, open3, close3)
 SELECT
   t.id,
   d.day_of_week,
@@ -226,7 +228,9 @@ SELECT
     WHEN d.day_of_week BETWEEN 1 AND 4 THEN '21:30:00'
     WHEN d.day_of_week IN (5, 6) THEN '22:00:00'
     ELSE NULL
-  END AS close2
+  END AS close2,
+  NULL AS open3,
+  NULL AS close3
 FROM tenants t
 CROSS JOIN (
   SELECT 0 AS day_of_week UNION ALL
@@ -272,6 +276,8 @@ CREATE TABLE IF NOT EXISTS barber_business_hours (
   close1 TIME NULL,
   open2 TIME NULL,
   close2 TIME NULL,
+  open3 TIME NULL,
+  close3 TIME NULL,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_barber_business_hours_day (barber_id, day_of_week),
@@ -296,6 +302,8 @@ CREATE TABLE IF NOT EXISTS barber_schedule_exceptions (
   close1 TIME NULL,
   open2 TIME NULL,
   close2 TIME NULL,
+  open3 TIME NULL,
+  close3 TIME NULL,
   note VARCHAR(140) NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
