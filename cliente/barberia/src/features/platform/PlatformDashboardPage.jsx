@@ -647,6 +647,8 @@ export default function PlatformDashboardPage() {
   }
 
   const summary = overview?.summary || {};
+  const monthlyTotals = billingMetrics?.totals || {};
+  const reportMonthLabel = formatMonthLabel(billingMetrics?.month || overview?.month);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -822,6 +824,39 @@ export default function PlatformDashboardPage() {
         </section>
 
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-2xl bg-zinc-900/60 p-4 ring-1 ring-white/10 sm:col-span-2 lg:col-span-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm font-bold">Reporte mensual SaaS</div>
+              <div className="text-xs text-zinc-400">Mes {reportMonthLabel}</div>
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-xl bg-zinc-950/70 p-3 ring-1 ring-white/10">
+                <div className="text-xs text-zinc-400">MRR cobrado</div>
+                <div className="mt-1 text-xl font-black text-emerald-300">
+                  {formatMoney(monthlyTotals.mrrCollectedArs)}
+                </div>
+              </div>
+              <div className="rounded-xl bg-zinc-950/70 p-3 ring-1 ring-white/10">
+                <div className="text-xs text-zinc-400">MRR pendiente</div>
+                <div className="mt-1 text-xl font-black text-amber-300">
+                  {formatMoney(monthlyTotals.mrrPendingArs)}
+                </div>
+              </div>
+              <div className="rounded-xl bg-zinc-950/70 p-3 ring-1 ring-white/10">
+                <div className="text-xs text-zinc-400">Pruebas activas</div>
+                <div className="mt-1 text-xl font-black text-cyan-300">
+                  {Number(monthlyTotals.trialActiveCount || 0)}
+                </div>
+              </div>
+              <div className="rounded-xl bg-zinc-950/70 p-3 ring-1 ring-white/10">
+                <div className="text-xs text-zinc-400">Suspendidos</div>
+                <div className="mt-1 text-xl font-black text-red-300">
+                  {Number(monthlyTotals.suspendedTotalCount || 0)}
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="rounded-2xl bg-zinc-900/60 p-4 ring-1 ring-white/10">
             <div className="text-xs text-zinc-400">Tenants totales</div>
             <div className="mt-1 text-2xl font-black">{summary.totalTenants || 0}</div>

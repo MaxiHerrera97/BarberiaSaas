@@ -525,6 +525,14 @@ function shiftBillingMonth(baseMonth, delta) {
   return `${yyyy}-${mm}`;
 }
 
+function parseMySqlDateTime(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const d = new Date(raw.replace(" ", "T"));
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+}
+
 router.get("/billing/metrics", requirePlatformAccess, async (req, res) => {
   try {
     const requestedMonth = String(req.query?.month || "").trim();
@@ -537,7 +545,8 @@ router.get("/billing/metrics", requirePlatformAccess, async (req, res) => {
     const targetMonth = requestedMonth || currentMonth;
 
     const [tenants] = await pool.query(
-      `SELECT id, slug, name, status, timezone
+      `SELECT id, slug, name, status, timezone,
+              trial_active, trial_starts_at, trial_ends_at
        FROM tenants
        ORDER BY id ASC`
     );
@@ -584,6 +593,17 @@ router.get("/billing/metrics", requirePlatformAccess, async (req, res) => {
       byMethod[key].sharePct = totalMethodsAmount > 0
         ? Math.round((byMethod[key].amountArs / totalMethodsAmount) * 100)
         : 0;
+    }
+
+    const now = new Date();
+    let trialActiveCount = 0;
+    let suspendedTotalCount = 0;
+    for (const tenant of tenants) {
+      const trialEnabled = Number(tenant.trial_active || 0) === 1;
+      const trialEndsAt = parseMySqlDateTime(tenant.trial_ends_at);
+      const inTrialWindow = trialEnabled && (!trialEndsAt || trialEndsAt.getTime() >= now.getTime());
+      if (inTrialWindow) trialActiveCount += 1;
+      if (String(tenant.status || "").toLowerCase() !== "active") suspendedTotalCount += 1;
     }
 
     const trendMonths = [];
@@ -647,11 +667,15 @@ router.get("/billing/metrics", requirePlatformAccess, async (req, res) => {
       totals: {
         totalTenants,
         mrrArs,
+        mrrCollectedArs: collectedArs,
+        mrrPendingArs: pendingArs,
         paidCount,
         unpaidCount,
         collectedArs,
         pendingArs,
         collectionRatePct,
+        trialActiveCount,
+        suspendedTotalCount,
         overdueCount: overdueTenants.length,
       },
       methods: Object.values(byMethod),
