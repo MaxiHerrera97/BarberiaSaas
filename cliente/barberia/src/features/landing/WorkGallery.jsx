@@ -118,7 +118,7 @@ export default function WorkGallery({ photos, onOpenBooking }) {
                     <img
                       src={src}
                       alt="Trabajo"
-                      className="h-72 sm:h-80 md:h-[26rem] w-full object-cover object-top"
+                      className="h-65 sm:h-69 md:h-88 w-full object-cover object-top"
                       draggable={false}
                       loading="lazy"
                       decoding="async"
