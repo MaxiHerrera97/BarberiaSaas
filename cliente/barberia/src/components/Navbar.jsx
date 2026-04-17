@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import Container from "../components/Container";
-import Button from "../ui/Button";
 
 function getBrandInitials(brandName) {
   const value = String(brandName || "").trim();
@@ -68,10 +67,6 @@ export default function Navbar({
               <a className="transition hover:text-[var(--brand-soft)]" href="#trabajos">Trabajos</a>
             </nav>
 
-            <Button onClick={onOpenBooking} className="hidden shrink-0 lg:inline-flex">
-              Sacar turno
-            </Button>
-
             <button
               type="button"
               onClick={() => setMobileOpen((prev) => !prev)}
@@ -114,15 +109,6 @@ export default function Navbar({
               </a>
             </nav>
 
-            <Button
-              onClick={() => {
-                closeMobileMenu();
-                onOpenBooking?.();
-              }}
-              className="mt-3 w-full"
-            >
-              Sacar turno
-            </Button>
           </div>
         ) : null}
       </Container>
