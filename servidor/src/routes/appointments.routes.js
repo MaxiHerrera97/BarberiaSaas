@@ -452,11 +452,16 @@ router.post("/hold", async (req, res) => {
     }
 
     const [serviceRows] = await pool.query(
-      `SELECT id, duration_min FROM services WHERE id = :serviceId AND tenant_id = :tenantId LIMIT 1`,
+      `SELECT id, duration_min, quote_only FROM services WHERE id = :serviceId AND tenant_id = :tenantId LIMIT 1`,
       { serviceId, tenantId: req.tenant.id }
     );
     if (!serviceRows.length) {
       return res.status(400).json({ error: "Servicio inválido para este tenant" });
+    }
+    if (Number(serviceRows[0].quote_only || 0) === 1) {
+      return res.status(400).json({
+        error: "Este servicio se gestiona por presupuesto. Pedí cotización por WhatsApp.",
+      });
     }
     const serviceDurationMin = Number(serviceRows[0].duration_min || 0);
     if (!Number.isInteger(serviceDurationMin) || serviceDurationMin <= 0) {

@@ -47,6 +47,7 @@ export default function BookingModal({
   branches = [],
   barbers,
   services,
+  contactWhatsapp = "",
 }) {
   const CALENDAR_CACHE_TTL_MS = 60 * 1000;
   const AVAILABILITY_CACHE_TTL_MS = 30 * 1000;
@@ -105,6 +106,17 @@ export default function BookingModal({
 
   const phoneDigits = useMemo(() => onlyDigits(customerPhone), [customerPhone]);
   const phoneValid = useMemo(() => isValidArPhone(phoneDigits), [phoneDigits]);
+  const whatsappDigits = useMemo(() => String(contactWhatsapp || "").replace(/\D/g, ""), [contactWhatsapp]);
+
+  function openQuoteWhatsApp(serviceName) {
+    if (!whatsappDigits) {
+      setErrorMsg("La barbería todavía no configuró WhatsApp para pedir presupuestos.");
+      return;
+    }
+    const msg = `Hola! Quiero pedir presupuesto para el servicio: ${serviceName}.`;
+    const url = `https://wa.me/${whatsappDigits}?text=${encodeURIComponent(msg)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
 
   function getBarberCalendarCacheKey() {
     return `${barberId || 0}|${branchId || 0}`;
@@ -501,25 +513,43 @@ export default function BookingModal({
         {step === serviceStep && (
           <div className="grid gap-3">
             {services.map((s) => (
-              <button
+              <div
                 key={s.id}
-                onClick={async () => {
-                  await releaseHold();
-                  setServiceId(s.id);
-                  setErrorMsg("");
-                }}
                 className={[
                   "rounded-2xl p-4 text-left ring-1 transition",
-                  serviceId === s.id
+                  !s.quoteOnly && serviceId === s.id
                     ? "bg-amber-400 text-zinc-950 ring-amber-300"
-                    : "bg-zinc-950/40 ring-white/10 hover:ring-white/20",
+                    : "bg-zinc-950/40 ring-white/10",
                 ].join(" ")}
               >
                 <div className="font-bold">{s.name}</div>
-                <div className="text-xs opacity-80">
-                  {s.durationMin} min · ${s.price}
+                <div className="mt-1 text-xs opacity-80">
+                  {s.quoteOnly ? "Este servicio se cotiza por WhatsApp." : `${s.durationMin} min · $${s.price}`}
                 </div>
-              </button>
+                <div className="mt-3">
+                  {s.quoteOnly ? (
+                    <button
+                      type="button"
+                      onClick={() => openQuoteWhatsApp(s.name)}
+                      className="rounded-xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-400"
+                    >
+                      Pedir presupuesto
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await releaseHold();
+                        setServiceId(s.id);
+                        setErrorMsg("");
+                      }}
+                      className="rounded-xl bg-zinc-800 px-3 py-2 text-xs font-semibold text-zinc-100 hover:bg-zinc-700"
+                    >
+                      Seleccionar servicio
+                    </button>
+                  )}
+                </div>
+              </div>
             ))}
           </div>
         )}

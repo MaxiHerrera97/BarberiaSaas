@@ -9,7 +9,7 @@ const router = express.Router();
 router.get("/", async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT id, name, price_ars AS price, duration_min AS durationMin
+      `SELECT id, name, price_ars AS price, duration_min AS durationMin, quote_only AS quoteOnly
        FROM services
        WHERE is_active = 1 AND tenant_id = :tenantId
        ORDER BY id`,
@@ -25,21 +25,37 @@ router.get("/", async (req, res) => {
 router.post("/", auth, requireRole("admin"), async (req, res) => {
   try {
     const name = String(req.body?.name || "").trim();
-    const price = Number(req.body?.price);
-    const durationMin = Number(req.body?.durationMin);
+    const quoteOnly = req.body?.quoteOnly ? 1 : 0;
+    const rawPrice = req.body?.price;
+    const rawDuration = req.body?.durationMin;
+    const price = rawPrice === undefined || rawPrice === null || rawPrice === "" ? 0 : Number(rawPrice);
+    const durationMin =
+      rawDuration === undefined || rawDuration === null || rawDuration === "" ? 0 : Number(rawDuration);
 
     if (!name) return res.status(400).json({ error: "name requerido" });
-    if (!Number.isInteger(price) || price <= 0) {
+    if (!Number.isInteger(price) || price < 0) {
       return res.status(400).json({ error: "price inválido" });
     }
-    if (!Number.isInteger(durationMin) || durationMin <= 0) {
+    if (!Number.isInteger(durationMin) || durationMin < 0) {
+      return res.status(400).json({ error: "durationMin inválido" });
+    }
+    if (!quoteOnly && price <= 0) {
+      return res.status(400).json({ error: "price inválido" });
+    }
+    if (!quoteOnly && durationMin <= 0) {
       return res.status(400).json({ error: "durationMin inválido" });
     }
 
     const [ins] = await pool.query(
-      `INSERT INTO services (tenant_id, name, price_ars, duration_min, is_active)
-       VALUES (:tenantId, :name, :price, :durationMin, 1)`,
-      { tenantId: req.tenant.id, name, price, durationMin }
+      `INSERT INTO services (tenant_id, name, price_ars, duration_min, quote_only, is_active)
+       VALUES (:tenantId, :name, :price, :durationMin, :quoteOnly, 1)`,
+      {
+        tenantId: req.tenant.id,
+        name,
+        price: quoteOnly ? 0 : price,
+        durationMin: quoteOnly ? 0 : durationMin,
+        quoteOnly,
+      }
     );
 
     res.status(201).json({ id: ins.insertId });
@@ -63,7 +79,7 @@ router.patch("/:id", auth, requireRole("admin"), async (req, res) => {
     }
     if (req.body?.price !== undefined) {
       const price = Number(req.body.price);
-      if (!Number.isInteger(price) || price <= 0) {
+      if (!Number.isInteger(price) || price < 0) {
         return res.status(400).json({ error: "price inválido" });
       }
       updates.push("price_ars = :price");
@@ -80,6 +96,10 @@ router.patch("/:id", auth, requireRole("admin"), async (req, res) => {
     if (req.body?.isActive !== undefined) {
       updates.push("is_active = :isActive");
       params.isActive = req.body.isActive ? 1 : 0;
+    }
+    if (req.body?.quoteOnly !== undefined) {
+      updates.push("quote_only = :quoteOnly");
+      params.quoteOnly = req.body.quoteOnly ? 1 : 0;
     }
 
     if (!updates.length) return res.status(400).json({ error: "Sin cambios" });

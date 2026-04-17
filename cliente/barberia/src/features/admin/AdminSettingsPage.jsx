@@ -88,7 +88,12 @@ export default function AdminSettingsPage() {
   const [barbersBranchFilter, setBarbersBranchFilter] = useState("all");
   const [scheduleBranchFilter, setScheduleBranchFilter] = useState("all");
   const [newBranchName, setNewBranchName] = useState("");
-  const [newService, setNewService] = useState({ name: "", price: "", durationMin: "30" });
+  const [newService, setNewService] = useState({
+    name: "",
+    price: "",
+    durationMin: "30",
+    quoteOnly: false,
+  });
   const [galleryFile, setGalleryFile] = useState(null);
   const [galleryUploading, setGalleryUploading] = useState(false);
   const [galleryOrdering, setGalleryOrdering] = useState(false);
@@ -480,11 +485,12 @@ export default function AdminSettingsPage() {
         method: "POST",
         body: {
           name: newService.name.trim(),
-          price: Number(newService.price),
-          durationMin: Number(newService.durationMin),
+          price: newService.quoteOnly ? 0 : Number(newService.price),
+          durationMin: newService.quoteOnly ? 0 : Number(newService.durationMin),
+          quoteOnly: !!newService.quoteOnly,
         },
       });
-      setNewService({ name: "", price: "", durationMin: "30" });
+      setNewService({ name: "", price: "", durationMin: "30", quoteOnly: false });
       await reloadAll();
       markOk("Servicio agregado");
     } catch (e) {
@@ -1487,12 +1493,14 @@ export default function AdminSettingsPage() {
               className="rounded-xl bg-zinc-900 px-3 py-2"
               placeholder="Precio ARS (ej: 12000)"
               value={newService.price}
+              disabled={newService.quoteOnly}
               onChange={(e) => setNewService({ ...newService, price: e.target.value })}
             />
             <input
               className="rounded-xl bg-zinc-900 px-3 py-2"
               placeholder="Duración min (ej: 30)"
               value={newService.durationMin}
+              disabled={newService.quoteOnly}
               onChange={(e) => setNewService({ ...newService, durationMin: e.target.value })}
             />
             <button
@@ -1502,6 +1510,21 @@ export default function AdminSettingsPage() {
               Agregar
             </button>
           </div>
+          <label className="inline-flex items-center gap-2 text-sm text-zinc-200">
+            <input
+              type="checkbox"
+              checked={!!newService.quoteOnly}
+              onChange={(e) =>
+                setNewService((prev) => ({
+                  ...prev,
+                  quoteOnly: e.target.checked,
+                  price: e.target.checked ? "0" : prev.price,
+                  durationMin: e.target.checked ? "0" : prev.durationMin,
+                }))
+              }
+            />
+            Servicio por presupuesto (sin reserva online)
+          </label>
           <div className="space-y-2">
             {services.length ? (
               services.map((s) => (
@@ -1512,7 +1535,7 @@ export default function AdminSettingsPage() {
                   <div>
                     <div className="font-medium">{s.name}</div>
                     <div className="text-xs text-zinc-400">
-                      ${s.price} ARS · {s.durationMin} min
+                      {s.quoteOnly ? "Solo presupuesto por WhatsApp" : `$${s.price} ARS · ${s.durationMin} min`}
                     </div>
                   </div>
                   <button

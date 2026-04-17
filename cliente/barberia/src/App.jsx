@@ -211,7 +211,7 @@ function Landing({
   return (
     <>
       <HeroSlider slides={heroSlides} onOpenBooking={onOpenBooking} brandName={brandName} />
-      <Services items={services} />
+      <Services items={services} contactWhatsapp={contactWhatsapp} />
       <WorkGallery photos={galleryPhotos} onOpenBooking={onOpenBooking} />
       <section className="border-t border-white/10 bg-zinc-950/70">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-6 text-sm text-zinc-300 md:flex-row md:items-center md:justify-between">
@@ -489,6 +489,7 @@ export default function App() {
         branches={branches}
         barbers={barbers}
         services={services}
+        contactWhatsapp={contactWhatsapp}
       />
     </div>
   );

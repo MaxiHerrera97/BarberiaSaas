@@ -8,7 +8,15 @@ function moneyARS(n) {
   }).format(n);
 }
 
-export default function Services({ items }) {
+export default function Services({ items, contactWhatsapp = "" }) {
+  const whatsappDigits = String(contactWhatsapp || "").replace(/\D/g, "");
+  function openQuoteWhatsApp(serviceName) {
+    if (!whatsappDigits) return;
+    const msg = `Hola! Quiero pedir presupuesto para el servicio: ${serviceName}.`;
+    const url = `https://wa.me/${whatsappDigits}?text=${encodeURIComponent(msg)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
   return (
     <section
       id="servicios"
@@ -36,12 +44,23 @@ export default function Services({ items }) {
                 <div>
                   <div className="text-lg font-bold text-zinc-100">{s.name}</div>
                   <div className="mt-1 text-sm text-zinc-400">
-                    Duración: {s.durationMin} min
+                    {s.quoteOnly ? "Servicio con presupuesto personalizado." : `Duración: ${s.durationMin} min`}
                   </div>
                 </div>
-                <div className="rounded-xl border border-[var(--brand)]/30 bg-[var(--brand)]/10 px-3 py-1 text-lg font-black text-[var(--brand-soft)] sm:text-right">
-                  {moneyARS(s.price)}
-                </div>
+                {s.quoteOnly ? (
+                  <button
+                    type="button"
+                    onClick={() => openQuoteWhatsApp(s.name)}
+                    disabled={!whatsappDigits}
+                    className="rounded-xl border border-emerald-400/30 bg-emerald-500/15 px-3 py-1 text-sm font-bold text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Pedir presupuesto
+                  </button>
+                ) : (
+                  <div className="rounded-xl border border-[var(--brand)]/30 bg-[var(--brand)]/10 px-3 py-1 text-lg font-black text-[var(--brand-soft)] sm:text-right">
+                    {moneyARS(s.price)}
+                  </div>
+                )}
               </div>
             </div>
           ))}
