@@ -118,14 +118,13 @@ export default function WorkGallery({ photos, onOpenBooking }) {
                     <img
                       src={src}
                       alt="Trabajo"
-                      className="h-60 sm:h-64 md:h-72 w-full object-cover object-top"
+                      className="h-72 sm:h-80 md:h-[26rem] w-full object-cover object-top"
                       draggable={false}
                       loading="lazy"
                       decoding="async"
                     />
-                    <div className="p-4">
-                      <div className="font-semibold text-zinc-100">Corte & estilo</div>
-                      <div className="text-sm text-zinc-400">Fade / Barba / Detalle</div>
+                    <div className="px-4 py-2.5">
+                      <div className="text-sm font-semibold text-zinc-100">Corte y Estilo</div>
                     </div>
                   </button>
                 </div>
