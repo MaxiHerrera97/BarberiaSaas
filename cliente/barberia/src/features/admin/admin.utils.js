@@ -24,11 +24,12 @@ export function msToMMSS(ms) {
   return `${m}:${s}`;
 }
 
-// ✅ genera slots cada 30 min SOLO dentro de las ventanas reales del día
-export function buildDaySlots(date = new Date()) {
+// ✅ genera slots de agenda cada 15 min SOLO dentro de las ventanas reales del día
+export function buildDaySlots(date = new Date(), stepMin = 15) {
   const base = startOfDay(date);
   const windows = getBusinessWindows(base);
   if (!windows.length) return [];
+  if (!stepMin || stepMin <= 0) return [];
 
   const slots = [];
 
@@ -39,7 +40,7 @@ export function buildDaySlots(date = new Date()) {
     let cur = new Date(start);
     while (cur < end) {
       const nxt = new Date(cur);
-      nxt.setMinutes(cur.getMinutes() + 30);
+      nxt.setMinutes(cur.getMinutes() + stepMin);
 
       if (nxt > end) break;
 

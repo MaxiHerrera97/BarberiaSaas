@@ -19,7 +19,7 @@ import PlatformDashboardPage from "./features/platform/PlatformDashboardPage";
 // ✅ NUEVO
 import DisplayPage from "./pages/display/DisplayPage";
 
-import { heroImages, workPhotos, barbers as fallbackBarbers, services as fallbackServices } from "./lib/data";
+import { heroImages } from "./lib/data";
 import { apiFetch, getApiUrl } from "./lib/api";
 
 /* ---------- LANDING ---------- */
@@ -259,11 +259,11 @@ function Landing({
 export default function App() {
   const location = useLocation();
   const [openBooking, setOpenBooking] = useState(false);
-  const [barbers, setBarbers] = useState(fallbackBarbers);
+  const [barbers, setBarbers] = useState([]);
   const [branches, setBranches] = useState([]);
-  const [services, setServices] = useState(fallbackServices);
-  const [galleryPhotos, setGalleryPhotos] = useState(workPhotos);
-  const [brandName, setBrandName] = useState("Tu Estilo - Barbería");
+  const [services, setServices] = useState([]);
+  const [galleryPhotos, setGalleryPhotos] = useState([]);
+  const [brandName, setBrandName] = useState("");
   const [tagline, setTagline] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
   const [heroSlidesConfig, setHeroSlidesConfig] = useState([]);
@@ -311,9 +311,9 @@ export default function App() {
                 return `${getApiUrl()}${g.imageUrl}`;
               })
           : [];
-        setGalleryPhotos(galleryFromApi.length ? galleryFromApi : workPhotos);
+        setGalleryPhotos(galleryFromApi);
 
-        setBrandName(tenantConfig?.settings?.brandName || "Tu Estilo - Barbería");
+        setBrandName(tenantConfig?.settings?.brandName || "");
         setTagline(tenantConfig?.settings?.tagline || "");
         setContactPhone(tenantConfig?.settings?.contactPhone || "");
         setContactWhatsapp(tenantConfig?.settings?.contactWhatsapp || "");
@@ -388,18 +388,26 @@ export default function App() {
           <Route
             path="/"
             element={
-              <Landing
-                onOpenBooking={() => setOpenBooking(true)}
-                services={services}
-                galleryPhotos={galleryPhotos}
-                brandName={brandName}
-                tagline={tagline}
-                heroSlidesConfig={heroSlidesConfig}
-                contactPhone={contactPhone}
-                contactWhatsapp={contactWhatsapp}
-                contactInstagram={contactInstagram}
-                address={address}
-              />
+              loadingCatalog ? (
+                <section className="grid min-h-[60vh] place-items-center px-4">
+                  <div className="text-center text-zinc-400">
+                    <div className="text-sm font-semibold uppercase tracking-wider">Cargando sitio...</div>
+                  </div>
+                </section>
+              ) : (
+                <Landing
+                  onOpenBooking={() => setOpenBooking(true)}
+                  services={services}
+                  galleryPhotos={galleryPhotos}
+                  brandName={brandName}
+                  tagline={tagline}
+                  heroSlidesConfig={heroSlidesConfig}
+                  contactPhone={contactPhone}
+                  contactWhatsapp={contactWhatsapp}
+                  contactInstagram={contactInstagram}
+                  address={address}
+                />
+              )
             }
           />
 

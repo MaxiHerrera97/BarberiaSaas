@@ -98,6 +98,24 @@ function formatDateTimeInTimezone(dateLike, timezone) {
   }).format(dateObj);
 }
 
+function toMySQLDateTimeLocal(dateLike) {
+  const d = dateLike instanceof Date ? new Date(dateLike) : new Date(dateLike);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(
+    d.getHours()
+  )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function addMinutesToMySQLDateTimeLocal(startAt, minutes) {
+  const base = parseMySQLDateTimeLocal(startAt);
+  if (Number.isNaN(base.getTime())) return "";
+  const mins = Number(minutes);
+  if (!Number.isFinite(mins) || mins <= 0) return "";
+  base.setMinutes(base.getMinutes() + mins);
+  return toMySQLDateTimeLocal(base);
+}
+
 function windowsFromRow(baseDate, row) {
   if (!row || Number(row.is_closed) === 1) return [];
   const out = [];
@@ -285,7 +303,8 @@ router.get("/availability", async (req, res) => {
     if (!range) return res.status(400).json({ error: "date inválida (YYYY-MM-DD)" });
 
     const params = { tenantId: req.tenant.id, start: range.start, end: range.end };
-    let whereAppt = `WHERE tenant_id = :tenantId AND start_at >= :start AND start_at < :end`;
+    let whereAppt =
+      `WHERE tenant_id = :tenantId AND start_at >= :start AND start_at < :end AND status IN ('pending','in_progress')`;
     let whereHold =
       `WHERE tenant_id = :tenantId AND start_at >= :start AND start_at < :end AND expires_at > NOW()`;
 
@@ -410,8 +429,8 @@ router.post("/hold", async (req, res) => {
   try {
     await cleanupExpiredHolds(req.tenant.id);
 
-    const { branchId, barberId, serviceId, startAt, endAt } = req.body || {};
-    if (!barberId || !serviceId || !startAt || !endAt) {
+    const { branchId, barberId, serviceId, startAt } = req.body || {};
+    if (!barberId || !serviceId || !startAt) {
       return res.status(400).json({ error: "Datos incompletos" });
     }
     const branchIdNum =
@@ -432,11 +451,26 @@ router.post("/hold", async (req, res) => {
       return res.status(400).json({ error: "Barbero inválido para este tenant" });
     }
 
+    const [serviceRows] = await pool.query(
+      `SELECT id, duration_min FROM services WHERE id = :serviceId AND tenant_id = :tenantId LIMIT 1`,
+      { serviceId, tenantId: req.tenant.id }
+    );
+    if (!serviceRows.length) {
+      return res.status(400).json({ error: "Servicio inválido para este tenant" });
+    }
+    const serviceDurationMin = Number(serviceRows[0].duration_min || 0);
+    if (!Number.isInteger(serviceDurationMin) || serviceDurationMin <= 0) {
+      return res.status(400).json({ error: "La duración del servicio es inválida" });
+    }
+    const computedEndAt = addMinutesToMySQLDateTimeLocal(startAt, serviceDurationMin);
+    if (!computedEndAt) {
+      return res.status(400).json({ error: "startAt inválido" });
+    }
+
     // ✅ VALIDACIÓN HORARIOS (barbero + barbería)
-    if (!(await isWithinBarberAvailability(req.tenant.id, barberId, startAt, endAt))) {
+    if (!(await isWithinBarberAvailability(req.tenant.id, barberId, startAt, computedEndAt))) {
       return res.status(400).json({
-        error:
-          "Fuera del horario disponible del barbero.",
+        error: "Fuera del horario disponible del barbero.",
       });
     }
     const barberBranchId = Number(barberRows[0].branch_id || 0);
@@ -448,14 +482,6 @@ router.post("/hold", async (req, res) => {
       return res.status(400).json({ error: "No se pudo resolver la sucursal del turno" });
     }
 
-    const [serviceRows] = await pool.query(
-      `SELECT id FROM services WHERE id = :serviceId AND tenant_id = :tenantId LIMIT 1`,
-      { serviceId, tenantId: req.tenant.id }
-    );
-    if (!serviceRows.length) {
-      return res.status(400).json({ error: "Servicio inválido para este tenant" });
-    }
-
     const holdToken = uuidv4();
     const conn = await pool.getConnection();
 
@@ -465,26 +491,32 @@ router.post("/hold", async (req, res) => {
       // turno existente
       const [appts] = await conn.query(
         `SELECT id FROM appointments
-         WHERE tenant_id = :tenantId AND barber_id = :barberId AND start_at = :startAt
+         WHERE tenant_id = :tenantId
+           AND barber_id = :barberId
+           AND status IN ('pending','in_progress')
+           AND start_at < :endAt
+           AND end_at > :startAt
          LIMIT 1`,
-        { tenantId: req.tenant.id, barberId, startAt }
+        { tenantId: req.tenant.id, barberId, startAt, endAt: computedEndAt }
       );
       if (appts.length) {
         await conn.rollback();
-        return res.status(409).json({ error: "Slot ocupado" });
+        return res.status(409).json({ error: "Horario ocupado" });
       }
 
       // hold existente
       const [holds] = await conn.query(
         `SELECT id FROM appointment_holds
          WHERE tenant_id = :tenantId AND barber_id = :barberId
-           AND start_at = :startAt AND expires_at > NOW()
+           AND start_at < :endAt
+           AND end_at > :startAt
+           AND expires_at > NOW()
          LIMIT 1`,
-        { tenantId: req.tenant.id, barberId, startAt }
+        { tenantId: req.tenant.id, barberId, startAt, endAt: computedEndAt }
       );
       if (holds.length) {
         await conn.rollback();
-        return res.status(409).json({ error: "Slot en proceso" });
+        return res.status(409).json({ error: "Horario en proceso de reserva" });
       }
 
       await conn.query(
@@ -492,11 +524,19 @@ router.post("/hold", async (req, res) => {
          (tenant_id, branch_id, barber_id, service_id, start_at, end_at, hold_token, expires_at)
          VALUES
          (:tenantId, :branchId, :barberId, :serviceId, :startAt, :endAt, :holdToken, DATE_ADD(NOW(), INTERVAL 3 MINUTE))`,
-        { tenantId: req.tenant.id, branchId: finalBranchId, barberId, serviceId, startAt, endAt, holdToken }
+        {
+          tenantId: req.tenant.id,
+          branchId: finalBranchId,
+          barberId,
+          serviceId,
+          startAt,
+          endAt: computedEndAt,
+          holdToken,
+        }
       );
 
       await conn.commit();
-      res.json({ holdToken, expiresInSec: 180 });
+      res.json({ holdToken, expiresInSec: 180, startAt, endAt: computedEndAt });
     } catch (e) {
       await conn.rollback();
       throw e;
@@ -553,7 +593,8 @@ router.post("/confirm", async (req, res) => {
         `SELECT *
          FROM appointment_holds
          WHERE hold_token = :holdToken AND tenant_id = :tenantId AND expires_at > NOW()
-         LIMIT 1`,
+         LIMIT 1
+         FOR UPDATE`,
         { holdToken, tenantId: req.tenant.id }
       );
 
@@ -599,6 +640,50 @@ router.post("/confirm", async (req, res) => {
           error:
             "Ese horario no está dentro del horario disponible del barbero. Volvé a elegir uno válido.",
         });
+      }
+
+      const [overlapAppts] = await conn.query(
+        `SELECT id
+         FROM appointments
+         WHERE tenant_id = :tenantId
+           AND barber_id = :barberId
+           AND status IN ('pending','in_progress')
+           AND start_at < :endAt
+           AND end_at > :startAt
+         LIMIT 1`,
+        {
+          tenantId: req.tenant.id,
+          barberId: h.barber_id,
+          startAt: h.start_at,
+          endAt: h.end_at,
+        }
+      );
+      if (overlapAppts.length) {
+        await conn.rollback();
+        return res.status(409).json({ error: "Ese horario ya no está disponible" });
+      }
+
+      const [overlapHolds] = await conn.query(
+        `SELECT id
+         FROM appointment_holds
+         WHERE tenant_id = :tenantId
+           AND barber_id = :barberId
+           AND hold_token <> :holdToken
+           AND expires_at > NOW()
+           AND start_at < :endAt
+           AND end_at > :startAt
+         LIMIT 1`,
+        {
+          tenantId: req.tenant.id,
+          barberId: h.barber_id,
+          holdToken,
+          startAt: h.start_at,
+          endAt: h.end_at,
+        }
+      );
+      if (overlapHolds.length) {
+        await conn.rollback();
+        return res.status(409).json({ error: "Ese horario está en proceso de reserva" });
       }
 
       const [ins] = await conn.query(

@@ -29,20 +29,22 @@ function overlaps(aStart, aEnd, bStart, bEnd) {
 }
 
 /**
- * ✅ Genera slots cada durationMin dentro de las ventanas reales del día
+ * ✅ Genera slots cada slotStepMin dentro de las ventanas reales del día
  * y marca busy si se solapa con busyRanges (appointments + holds)
  */
 export function buildSlots(
   date,
   durationMin,
   busyRanges = [],
-  dayWindows = null
+  dayWindows = null,
+  slotStepMin = 15
 ) {
   const base = startOfDay(date);
   const windows = Array.isArray(dayWindows) ? dayWindows : [];
 
   if (!durationMin || durationMin <= 0) return [];
   if (!windows.length) return []; // domingo cerrado
+  if (!slotStepMin || slotStepMin <= 0) return [];
 
   const slots = [];
 
@@ -67,7 +69,9 @@ export function buildSlots(
         status: busy ? "busy" : "free",
       });
 
-      cur = nxt;
+      const step = new Date(cur);
+      step.setMinutes(step.getMinutes() + slotStepMin);
+      cur = step;
     }
   }
 

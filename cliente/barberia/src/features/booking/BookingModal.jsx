@@ -1,5 +1,5 @@
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Modal from "../../ui/Modal";
 import Button from "../../ui/Button";
 import { apiFetch } from "../../lib/api";
@@ -48,6 +48,9 @@ export default function BookingModal({
   barbers,
   services,
 }) {
+  const CALENDAR_CACHE_TTL_MS = 60 * 1000;
+  const AVAILABILITY_CACHE_TTL_MS = 30 * 1000;
+
   const [step, setStep] = useState(1);
 
   const [branchId, setBranchId] = useState(null);
@@ -72,6 +75,8 @@ export default function BookingModal({
   const [availableDates, setAvailableDates] = useState([]);
   const [dayWindows, setDayWindows] = useState([]);
   const [loadingCalendar, setLoadingCalendar] = useState(false);
+  const barberCalendarCacheRef = useRef(new Map());
+  const availabilityCacheRef = useRef(new Map());
 
   const activeBranches = useMemo(
     () => (Array.isArray(branches) ? branches.filter((b) => !!b.isActive) : []),
@@ -101,6 +106,14 @@ export default function BookingModal({
   const phoneDigits = useMemo(() => onlyDigits(customerPhone), [customerPhone]);
   const phoneValid = useMemo(() => isValidArPhone(phoneDigits), [phoneDigits]);
 
+  function getBarberCalendarCacheKey() {
+    return `${barberId || 0}|${branchId || 0}`;
+  }
+
+  function getAvailabilityCacheKey(dateObj = date) {
+    return `${barberId || 0}|${branchId || 0}|${toDateParam(dateObj)}`;
+  }
+
   /** ✅ Libera el hold actual si existe */
   async function releaseHold() {
     if (!holdToken) return;
@@ -111,6 +124,7 @@ export default function BookingModal({
 
     try {
       await apiFetch(`/appointments/hold/${token}`, { method: "DELETE" });
+      availabilityCacheRef.current.delete(getAvailabilityCacheKey());
     } catch {
       // best-effort
     }
@@ -144,6 +158,8 @@ export default function BookingModal({
     setLoadingHold(false);
     setLoadingConfirm(false);
     setLoadingBusy(false);
+    barberCalendarCacheRef.current.clear();
+    availabilityCacheRef.current.clear();
 
     onClose?.();
   }
@@ -178,6 +194,20 @@ export default function BookingModal({
       if (!open) return;
       if (!barberId) return;
       if (showBranchStep && !branchId) return;
+
+      const cacheKey = getBarberCalendarCacheKey();
+      const cached = barberCalendarCacheRef.current.get(cacheKey);
+      if (cached && Date.now() - cached.fetchedAt < CALENDAR_CACHE_TTL_MS) {
+        if (!alive) return;
+        const dates = Array.isArray(cached?.availableDates) ? cached.availableDates : [];
+        setAvailableDates(dates);
+        if (dates.length && !dates.includes(toDateParam(date))) {
+          const nextDate = new Date(`${dates[0]}T00:00:00`);
+          setDate(startOfDay(nextDate));
+        }
+        return;
+      }
+
       setLoadingCalendar(true);
       try {
         const from = toDateParam(new Date());
@@ -185,6 +215,10 @@ export default function BookingModal({
           `/appointments/barber-calendar?barberId=${barberId}&from=${from}&days=14`
         );
         const dates = Array.isArray(data?.availableDates) ? data.availableDates : [];
+        barberCalendarCacheRef.current.set(cacheKey, {
+          fetchedAt: Date.now(),
+          availableDates: dates,
+        });
         if (!alive) return;
         setAvailableDates(dates);
         if (dates.length && !dates.includes(toDateParam(date))) {
@@ -202,7 +236,7 @@ export default function BookingModal({
     return () => {
       alive = false;
     };
-  }, [open, barberId, showBranchStep, branchId, date]);
+  }, [open, barberId, showBranchStep, branchId]);
 
   // ✅ Cargar disponibilidad real (appointments + holds) en step 5
   useEffect(() => {
@@ -213,11 +247,20 @@ export default function BookingModal({
       if (step !== scheduleStep) return;
       if (!barberId) return;
 
-      setLoadingBusy(true);
-      setErrorMsg("");
-
       try {
         const dateStr = toDateParam(date);
+        const cacheKey = getAvailabilityCacheKey(date);
+        const cached = availabilityCacheRef.current.get(cacheKey);
+        if (cached && Date.now() - cached.fetchedAt < AVAILABILITY_CACHE_TTL_MS) {
+          if (!alive) return;
+          setBusyRanges(Array.isArray(cached?.busyRanges) ? cached.busyRanges : []);
+          setDayWindows(Array.isArray(cached?.dayWindows) ? cached.dayWindows : []);
+          return;
+        }
+
+        setLoadingBusy(true);
+        setErrorMsg("");
+
         const data = await apiFetch(
           `/appointments/availability?date=${dateStr}&barberId=${barberId}${
             branchId ? `&branchId=${branchId}` : ""
@@ -240,6 +283,12 @@ export default function BookingModal({
             kind: "hold",
           })),
         ];
+
+        availabilityCacheRef.current.set(cacheKey, {
+          fetchedAt: Date.now(),
+          busyRanges: ranges,
+          dayWindows: Array.isArray(data?.dayWindows) ? data.dayWindows : [],
+        });
 
         if (alive) {
           setBusyRanges(ranges);
@@ -286,6 +335,10 @@ export default function BookingModal({
 
   async function pickSlot(s) {
     if (s.status !== "free") return;
+    if (s.start.getTime() < Date.now()) {
+      setErrorMsg("Ese horario ya pasó. Elegí uno actual o futuro.");
+      return;
+    }
 
     setErrorMsg("");
     setLoadingHold(true);
@@ -520,7 +573,7 @@ export default function BookingModal({
               <div className="text-sm text-zinc-300 font-semibold">Horarios</div>
               {loadingBusy ? (
                 <div className="text-xs text-zinc-400">
-                  Cargando disponibilidad...
+                  Actualizando disponibilidad...
                 </div>
               ) : null}
             </div>
@@ -535,23 +588,31 @@ export default function BookingModal({
                   const selected =
                     slot?.start?.toISOString?.() === s.start.toISOString();
                   const busy = s.status !== "free";
+                  const isPast = s.start.getTime() < Date.now();
+                  const disabled = busy || isPast || loadingHold || loadingConfirm;
 
                   return (
                     <button
                       key={s.start.toISOString()}
-                      disabled={busy || loadingHold || loadingConfirm}
+                      disabled={disabled}
                       onClick={() => pickSlot(s)}
                       className={[
                         "rounded-xl px-3 py-3 text-sm font-semibold ring-1 transition",
                         selected
                           ? "bg-amber-400 text-zinc-950 ring-amber-300"
-                          : busy
+                          : disabled
                           ? "bg-red-500/10 text-red-200 ring-red-500/30 cursor-not-allowed"
                           : "bg-zinc-950/40 ring-white/10 hover:ring-white/20",
                         loadingHold ? "opacity-60 cursor-wait" : "",
                       ].join(" ")}
                       title={
-                        busy ? "Ocupado" : loadingHold ? "Reservando..." : ""
+                        busy
+                          ? "Ocupado"
+                          : isPast
+                          ? "Horario pasado"
+                          : loadingHold
+                          ? "Reservando..."
+                          : ""
                       }
                     >
                       {formatTime(s.start)}

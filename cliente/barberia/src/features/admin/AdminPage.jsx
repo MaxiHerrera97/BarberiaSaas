@@ -918,7 +918,7 @@ export default function AdminPage({
           <div>
             <h1 className="text-3xl font-black">Agenda del día</h1>
             <p className="mt-2 text-zinc-400">
-              Turnos por barbero (bloques de 30 min). Iniciá un corte para ver el contador.
+              Turnos por barbero. Iniciá un corte para ver el contador.
             </p>
           </div>
 
