@@ -513,21 +513,16 @@ export default function BookingModal({
         {step === serviceStep && (
           <div className="grid gap-3">
             {services.map((s) => (
-              <div
-                key={s.id}
-                className={[
-                  "rounded-2xl p-4 text-left ring-1 transition",
-                  !s.quoteOnly && serviceId === s.id
-                    ? "bg-amber-400 text-zinc-950 ring-amber-300"
-                    : "bg-zinc-950/40 ring-white/10",
-                ].join(" ")}
-              >
-                <div className="font-bold">{s.name}</div>
-                <div className="mt-1 text-xs opacity-80">
-                  {s.quoteOnly ? "Este servicio se cotiza por WhatsApp." : `${s.durationMin} min · $${s.price}`}
-                </div>
-                <div className="mt-3">
-                  {s.quoteOnly ? (
+              s.quoteOnly ? (
+                <div
+                  key={s.id}
+                  className="rounded-2xl bg-zinc-950/40 p-4 text-left ring-1 ring-white/10"
+                >
+                  <div className="font-bold">{s.name}</div>
+                  <div className="mt-1 text-xs opacity-80">
+                    Este servicio se cotiza por WhatsApp.
+                  </div>
+                  <div className="mt-3">
                     <button
                       type="button"
                       onClick={() => openQuoteWhatsApp(s.name)}
@@ -535,21 +530,29 @@ export default function BookingModal({
                     >
                       Pedir presupuesto
                     </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        await releaseHold();
-                        setServiceId(s.id);
-                        setErrorMsg("");
-                      }}
-                      className="rounded-xl bg-zinc-800 px-3 py-2 text-xs font-semibold text-zinc-100 hover:bg-zinc-700"
-                    >
-                      Seleccionar servicio
-                    </button>
-                  )}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <button
+                  key={s.id}
+                  onClick={async () => {
+                    await releaseHold();
+                    setServiceId(s.id);
+                    setErrorMsg("");
+                  }}
+                  className={[
+                    "rounded-2xl p-4 text-left ring-1 transition",
+                    serviceId === s.id
+                      ? "bg-amber-400 text-zinc-950 ring-amber-300"
+                      : "bg-zinc-950/40 ring-white/10 hover:ring-white/20",
+                  ].join(" ")}
+                >
+                  <div className="font-bold">{s.name}</div>
+                  <div className="text-xs opacity-80">
+                    {s.durationMin} min · ${s.price}
+                  </div>
+                </button>
+              )
             ))}
           </div>
         )}
