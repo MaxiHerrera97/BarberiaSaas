@@ -29,7 +29,7 @@ function overlaps(aStart, aEnd, bStart, bEnd) {
 }
 
 /**
- * ✅ Genera slots cada slotStepMin dentro de las ventanas reales del día
+ * ✅ Genera slots cada duración del servicio dentro de las ventanas reales del día
  * y marca busy si se solapa con busyRanges (appointments + holds)
  */
 export function buildSlots(
@@ -37,7 +37,7 @@ export function buildSlots(
   durationMin,
   busyRanges = [],
   dayWindows = null,
-  slotStepMin = 15
+  slotStepMin = durationMin
 ) {
   const base = startOfDay(date);
   const windows = Array.isArray(dayWindows) ? dayWindows : [];
