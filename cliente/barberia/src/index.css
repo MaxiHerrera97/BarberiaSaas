@@ -65,3 +65,17 @@ h3,
 .anim-fade-rise {
   animation: fadeRise 0.55s ease-out;
 }
+
+/* Oculta el icono nativo de reloj en inputs de hora */
+input[type="time"] {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: none;
+}
+
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-clear-button,
+input[type="time"]::-webkit-inner-spin-button {
+  display: none;
+  -webkit-appearance: none;
+}
