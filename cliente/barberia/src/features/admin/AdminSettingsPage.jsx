@@ -1276,7 +1276,7 @@ export default function AdminSettingsPage() {
                     <input
                       disabled={h.isClosed}
                       type="time"
-                      className="w-full rounded bg-zinc-900 px-2 py-1 disabled:opacity-40"
+                      className="w-full rounded bg-zinc-900 py-1 pl-2 pr-8 disabled:opacity-40"
                       value={h.open1 || ""}
                       onChange={(e) => {
                         const next = [...selectedBarberWeekly];
@@ -1287,7 +1287,7 @@ export default function AdminSettingsPage() {
                     <input
                       disabled={h.isClosed}
                       type="time"
-                      className="w-full rounded bg-zinc-900 px-2 py-1 disabled:opacity-40"
+                      className="w-full rounded bg-zinc-900 py-1 pl-2 pr-8 disabled:opacity-40"
                       value={h.close1 || ""}
                       onChange={(e) => {
                         const next = [...selectedBarberWeekly];
@@ -1298,7 +1298,7 @@ export default function AdminSettingsPage() {
                     <input
                       disabled={h.isClosed}
                       type="time"
-                      className="w-full rounded bg-zinc-900 px-2 py-1 disabled:opacity-40"
+                      className="w-full rounded bg-zinc-900 py-1 pl-2 pr-8 disabled:opacity-40"
                       value={h.open2 || ""}
                       onChange={(e) => {
                         const next = [...selectedBarberWeekly];
@@ -1309,7 +1309,7 @@ export default function AdminSettingsPage() {
                     <input
                       disabled={h.isClosed}
                       type="time"
-                      className="w-full rounded bg-zinc-900 px-2 py-1 disabled:opacity-40"
+                      className="w-full rounded bg-zinc-900 py-1 pl-2 pr-8 disabled:opacity-40"
                       value={h.close2 || ""}
                       onChange={(e) => {
                         const next = [...selectedBarberWeekly];
@@ -1320,7 +1320,7 @@ export default function AdminSettingsPage() {
                     <input
                       disabled={h.isClosed}
                       type="time"
-                      className="w-full rounded bg-zinc-900 px-2 py-1 disabled:opacity-40"
+                      className="w-full rounded bg-zinc-900 py-1 pl-2 pr-8 disabled:opacity-40"
                       value={h.open3 || ""}
                       onChange={(e) => {
                         const next = [...selectedBarberWeekly];
@@ -1331,7 +1331,7 @@ export default function AdminSettingsPage() {
                     <input
                       disabled={h.isClosed}
                       type="time"
-                      className="w-full rounded bg-zinc-900 px-2 py-1 disabled:opacity-40"
+                      className="w-full rounded bg-zinc-900 py-1 pl-2 pr-8 disabled:opacity-40"
                       value={h.close3 || ""}
                       onChange={(e) => {
                         const next = [...selectedBarberWeekly];
@@ -1342,7 +1342,7 @@ export default function AdminSettingsPage() {
                     <input
                       disabled={h.isClosed}
                       type="time"
-                      className="w-full rounded bg-zinc-900 px-2 py-1 disabled:opacity-40"
+                      className="w-full rounded bg-zinc-900 py-1 pl-2 pr-8 disabled:opacity-40"
                       value={h.open4 || ""}
                       onChange={(e) => {
                         const next = [...selectedBarberWeekly];
@@ -1353,7 +1353,7 @@ export default function AdminSettingsPage() {
                     <input
                       disabled={h.isClosed}
                       type="time"
-                      className="w-full rounded bg-zinc-900 px-2 py-1 disabled:opacity-40"
+                      className="w-full rounded bg-zinc-900 py-1 pl-2 pr-8 disabled:opacity-40"
                       value={h.close4 || ""}
                       onChange={(e) => {
                         const next = [...selectedBarberWeekly];
@@ -1364,7 +1364,7 @@ export default function AdminSettingsPage() {
                     <input
                       disabled={h.isClosed}
                       type="time"
-                      className="w-full rounded bg-zinc-900 px-2 py-1 disabled:opacity-40"
+                      className="w-full rounded bg-zinc-900 py-1 pl-2 pr-8 disabled:opacity-40"
                       value={h.open5 || ""}
                       onChange={(e) => {
                         const next = [...selectedBarberWeekly];
@@ -1375,7 +1375,7 @@ export default function AdminSettingsPage() {
                     <input
                       disabled={h.isClosed}
                       type="time"
-                      className="w-full rounded bg-zinc-900 px-2 py-1 disabled:opacity-40"
+                      className="w-full rounded bg-zinc-900 py-1 pl-2 pr-8 disabled:opacity-40"
                       value={h.close5 || ""}
                       onChange={(e) => {
                         const next = [...selectedBarberWeekly];
