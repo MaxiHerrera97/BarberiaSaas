@@ -87,7 +87,7 @@ router.post("/", auth, requireRole("admin"), async (req, res) => {
     try {
       await pool.query(
         `INSERT INTO barber_business_hours
-         (tenant_id, barber_id, day_of_week, is_closed, open1, close1, open2, close2, open3, close3)
+         (tenant_id, barber_id, day_of_week, is_closed, open1, close1, open2, close2, open3, close3, open4, close4, open5, close5)
          SELECT
            :tenantId,
            :barberId,
@@ -98,7 +98,11 @@ router.post("/", auth, requireRole("admin"), async (req, res) => {
            h.open2,
            h.close2,
            h.open3,
-           h.close3
+           h.close3,
+           h.open4,
+           h.close4,
+           h.open5,
+           h.close5
          FROM business_hours h
          WHERE h.tenant_id = :tenantId
          ON DUPLICATE KEY UPDATE
@@ -108,7 +112,11 @@ router.post("/", auth, requireRole("admin"), async (req, res) => {
            open2 = VALUES(open2),
            close2 = VALUES(close2),
            open3 = VALUES(open3),
-           close3 = VALUES(close3)`,
+           close3 = VALUES(close3),
+           open4 = VALUES(open4),
+           close4 = VALUES(close4),
+           open5 = VALUES(open5),
+           close5 = VALUES(close5)`,
         { tenantId: req.tenant.id, barberId: ins.insertId }
       );
     } catch (e) {

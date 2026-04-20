@@ -43,6 +43,10 @@ function emptyHours() {
     close2: i >= 1 && i <= 4 ? "21:30" : i >= 5 ? "22:00" : null,
     open3: null,
     close3: null,
+    open4: null,
+    close4: null,
+    open5: null,
+    close5: null,
   }));
 }
 
@@ -117,6 +121,10 @@ export default function AdminSettingsPage() {
     close2: "",
     open3: "",
     close3: "",
+    open4: "",
+    close4: "",
+    open5: "",
+    close5: "",
     note: "",
   });
   const [barberCommissionDraft, setBarberCommissionDraft] = useState({});
@@ -393,6 +401,10 @@ export default function AdminSettingsPage() {
           close2: newBarberException.close2 || null,
           open3: newBarberException.open3 || null,
           close3: newBarberException.close3 || null,
+          open4: newBarberException.open4 || null,
+          close4: newBarberException.close4 || null,
+          open5: newBarberException.open5 || null,
+          close5: newBarberException.close5 || null,
           note: newBarberException.note || "",
         },
       });
@@ -405,6 +417,10 @@ export default function AdminSettingsPage() {
         close2: "",
         open3: "",
         close3: "",
+        open4: "",
+        close4: "",
+        open5: "",
+        close5: "",
         note: "",
       });
       await reloadAll();
@@ -1240,7 +1256,7 @@ export default function AdminSettingsPage() {
                 {selectedBarberWeekly.map((h, idx) => (
                   <div
                     key={`barber-weekly-${h.dayOfWeek}`}
-                    className="grid gap-2 rounded-xl bg-zinc-900/30 p-3 md:grid-cols-9 md:items-center"
+                    className="grid gap-2 rounded-xl bg-zinc-900/30 p-3 md:grid-cols-13 md:items-center"
                   >
                     <div className="font-medium md:col-span-2">{DAY_LABELS[idx]}</div>
                     <label className="text-sm">
@@ -1318,6 +1334,50 @@ export default function AdminSettingsPage() {
                       onChange={(e) => {
                         const next = [...selectedBarberWeekly];
                         next[idx] = { ...h, close3: e.target.value };
+                        setSelectedBarberWeekly(next);
+                      }}
+                    />
+                    <input
+                      disabled={h.isClosed}
+                      type="time"
+                      className="w-full rounded bg-zinc-900 px-2 py-1 disabled:opacity-40"
+                      value={h.open4 || ""}
+                      onChange={(e) => {
+                        const next = [...selectedBarberWeekly];
+                        next[idx] = { ...h, open4: e.target.value };
+                        setSelectedBarberWeekly(next);
+                      }}
+                    />
+                    <input
+                      disabled={h.isClosed}
+                      type="time"
+                      className="w-full rounded bg-zinc-900 px-2 py-1 disabled:opacity-40"
+                      value={h.close4 || ""}
+                      onChange={(e) => {
+                        const next = [...selectedBarberWeekly];
+                        next[idx] = { ...h, close4: e.target.value };
+                        setSelectedBarberWeekly(next);
+                      }}
+                    />
+                    <input
+                      disabled={h.isClosed}
+                      type="time"
+                      className="w-full rounded bg-zinc-900 px-2 py-1 disabled:opacity-40"
+                      value={h.open5 || ""}
+                      onChange={(e) => {
+                        const next = [...selectedBarberWeekly];
+                        next[idx] = { ...h, open5: e.target.value };
+                        setSelectedBarberWeekly(next);
+                      }}
+                    />
+                    <input
+                      disabled={h.isClosed}
+                      type="time"
+                      className="w-full rounded bg-zinc-900 px-2 py-1 disabled:opacity-40"
+                      value={h.close5 || ""}
+                      onChange={(e) => {
+                        const next = [...selectedBarberWeekly];
+                        next[idx] = { ...h, close5: e.target.value };
                         setSelectedBarberWeekly(next);
                       }}
                     />
@@ -1417,6 +1477,42 @@ export default function AdminSettingsPage() {
                     className="rounded-xl bg-zinc-900 px-3 py-2 disabled:opacity-40"
                   />
                   <input
+                    type="time"
+                    disabled={newBarberException.isClosed}
+                    value={newBarberException.open4}
+                    onChange={(e) =>
+                      setNewBarberException((prev) => ({ ...prev, open4: e.target.value }))
+                    }
+                    className="rounded-xl bg-zinc-900 px-3 py-2 disabled:opacity-40"
+                  />
+                  <input
+                    type="time"
+                    disabled={newBarberException.isClosed}
+                    value={newBarberException.close4}
+                    onChange={(e) =>
+                      setNewBarberException((prev) => ({ ...prev, close4: e.target.value }))
+                    }
+                    className="rounded-xl bg-zinc-900 px-3 py-2 disabled:opacity-40"
+                  />
+                  <input
+                    type="time"
+                    disabled={newBarberException.isClosed}
+                    value={newBarberException.open5}
+                    onChange={(e) =>
+                      setNewBarberException((prev) => ({ ...prev, open5: e.target.value }))
+                    }
+                    className="rounded-xl bg-zinc-900 px-3 py-2 disabled:opacity-40"
+                  />
+                  <input
+                    type="time"
+                    disabled={newBarberException.isClosed}
+                    value={newBarberException.close5}
+                    onChange={(e) =>
+                      setNewBarberException((prev) => ({ ...prev, close5: e.target.value }))
+                    }
+                    className="rounded-xl bg-zinc-900 px-3 py-2 disabled:opacity-40"
+                  />
+                  <input
                     type="text"
                     placeholder="Nota (opcional)"
                     value={newBarberException.note}
@@ -1454,6 +1550,10 @@ export default function AdminSettingsPage() {
                                 ex.open2 && ex.close2 ? ` y ${ex.open2}-${ex.close2}` : ""
                               }${
                                 ex.open3 && ex.close3 ? ` y ${ex.open3}-${ex.close3}` : ""
+                              }${
+                                ex.open4 && ex.close4 ? ` y ${ex.open4}-${ex.close4}` : ""
+                              }${
+                                ex.open5 && ex.close5 ? ` y ${ex.open5}-${ex.close5}` : ""
                               }`}
                           {ex.note ? ` • ${ex.note}` : ""}
                         </div>

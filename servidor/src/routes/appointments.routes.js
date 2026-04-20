@@ -137,6 +137,18 @@ function windowsFromRow(baseDate, row) {
       end: buildDateAtTime(baseDate, row.close3),
     });
   }
+  if (row.open4 && row.close4) {
+    out.push({
+      start: buildDateAtTime(baseDate, row.open4),
+      end: buildDateAtTime(baseDate, row.close4),
+    });
+  }
+  if (row.open5 && row.close5) {
+    out.push({
+      start: buildDateAtTime(baseDate, row.open5),
+      end: buildDateAtTime(baseDate, row.close5),
+    });
+  }
   return out.filter((w) => w.end.getTime() > w.start.getTime());
 }
 
@@ -147,7 +159,7 @@ async function getBarberOwnWindowsForDate(tenantId, barberId, dateLike) {
   const dateValue = toMySQLDateOnly(baseDate);
   try {
     const [[exceptionRow]] = await pool.query(
-      `SELECT is_closed, open1, close1, open2, close2, open3, close3
+      `SELECT is_closed, open1, close1, open2, close2, open3, close3, open4, close4, open5, close5
        FROM barber_schedule_exceptions
        WHERE tenant_id = :tenantId
          AND barber_id = :barberId
@@ -159,7 +171,7 @@ async function getBarberOwnWindowsForDate(tenantId, barberId, dateLike) {
     if (exceptionRow) return windowsFromRow(baseDate, exceptionRow);
 
     const [[weeklyRow]] = await pool.query(
-      `SELECT is_closed, open1, close1, open2, close2, open3, close3
+      `SELECT is_closed, open1, close1, open2, close2, open3, close3, open4, close4, open5, close5
        FROM barber_business_hours
        WHERE tenant_id = :tenantId
          AND barber_id = :barberId

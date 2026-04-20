@@ -62,10 +62,16 @@ export function getBusinessWindows(date, businessHours = null) {
     const close2 = normalizeHHMM(dayRow.close2);
     const open3 = normalizeHHMM(dayRow.open3);
     const close3 = normalizeHHMM(dayRow.close3);
+    const open4 = normalizeHHMM(dayRow.open4);
+    const close4 = normalizeHHMM(dayRow.close4);
+    const open5 = normalizeHHMM(dayRow.open5);
+    const close5 = normalizeHHMM(dayRow.close5);
 
     if (open1 && close1) out.push({ start: open1, end: close1 });
     if (open2 && close2) out.push({ start: open2, end: close2 });
     if (open3 && close3) out.push({ start: open3, end: close3 });
+    if (open4 && close4) out.push({ start: open4, end: close4 });
+    if (open5 && close5) out.push({ start: open5, end: close5 });
     return out;
   }
 

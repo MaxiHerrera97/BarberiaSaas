@@ -1,0 +1,18 @@
+ALTER TABLE business_hours
+  ADD COLUMN open4 TIME NULL AFTER close3,
+  ADD COLUMN close4 TIME NULL AFTER open4,
+  ADD COLUMN open5 TIME NULL AFTER close4,
+  ADD COLUMN close5 TIME NULL AFTER open5;
+
+ALTER TABLE barber_business_hours
+  ADD COLUMN open4 TIME NULL AFTER close3,
+  ADD COLUMN close4 TIME NULL AFTER open4,
+  ADD COLUMN open5 TIME NULL AFTER close4,
+  ADD COLUMN close5 TIME NULL AFTER open5;
+
+ALTER TABLE barber_schedule_exceptions
+  ADD COLUMN open4 TIME NULL AFTER close3,
+  ADD COLUMN close4 TIME NULL AFTER open4,
+  ADD COLUMN open5 TIME NULL AFTER close4,
+  ADD COLUMN close5 TIME NULL AFTER open5;
+
