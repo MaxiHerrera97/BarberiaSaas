@@ -679,6 +679,10 @@ router.put("/barber-schedules/:barberId/weekly", auth, requireRole("admin"), asy
         const close2 = normalizeTime(h?.close2);
         const open3 = normalizeTime(h?.open3);
         const close3 = normalizeTime(h?.close3);
+        const open4 = normalizeTime(h?.open4);
+        const close4 = normalizeTime(h?.close4);
+        const open5 = normalizeTime(h?.open5);
+        const close5 = normalizeTime(h?.close5);
         if (!isClosed && (!open1 || !close1)) {
           await conn.rollback();
           return res.status(400).json({ error: "Cada día abierto requiere open1 y close1" });
