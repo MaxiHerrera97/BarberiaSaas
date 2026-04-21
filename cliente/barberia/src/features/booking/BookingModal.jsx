@@ -339,6 +339,8 @@ export default function BookingModal({
 
   const selectedDateIsAvailable = availableDates.includes(toDateParam(date));
   const dateStepReady = !loadingCalendar && selectedDateIsAvailable;
+  const lockBackByStep = step === dateStep ? loadingCalendar : step === scheduleStep ? loadingBusy : false;
+  const lockNextByStep = step === dateStep ? loadingCalendar : step === scheduleStep ? loadingBusy : false;
 
   const canNext =
     (showBranchStep && step === branchStep && !!branchId) ||
@@ -421,7 +423,7 @@ export default function BookingModal({
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <button
         onClick={back}
-        disabled={step === 1 || loadingHold || loadingConfirm || loadingCalendar || loadingBusy}
+        disabled={step === 1 || loadingHold || loadingConfirm || lockBackByStep}
         className="order-2 rounded-xl px-4 py-2 text-sm font-semibold hover:bg-white/10 disabled:opacity-40 sm:order-1"
       >
         Atrás
@@ -430,7 +432,7 @@ export default function BookingModal({
       {step < totalSteps && (
         <Button
           onClick={next}
-          disabled={!canNext || loadingHold || loadingConfirm || loadingCalendar || loadingBusy}
+          disabled={!canNext || loadingHold || loadingConfirm || lockNextByStep}
           className="order-1 w-full sm:order-2 sm:w-auto"
         >
           Siguiente
