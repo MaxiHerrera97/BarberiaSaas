@@ -337,13 +337,16 @@ export default function BookingModal({
     if (step > 1) setStep(step - 1);
   }
 
+  const selectedDateIsAvailable = availableDates.includes(toDateParam(date));
+  const dateStepReady = !loadingCalendar && selectedDateIsAvailable;
+
   const canNext =
     (showBranchStep && step === branchStep && !!branchId) ||
     (step === barberStep && !!barberId) ||
     (step === serviceStep && !!serviceId) ||
-    (step === dateStep && !!date);
+    (step === dateStep && dateStepReady);
 
-  const canConfirm = !!holdToken && !!customerName.trim() && phoneValid;
+  const canConfirm = !loadingBusy && !!holdToken && !!customerName.trim() && phoneValid;
 
   async function pickSlot(s) {
     if (s.status !== "free") return;
@@ -418,7 +421,7 @@ export default function BookingModal({
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <button
         onClick={back}
-        disabled={step === 1 || loadingHold || loadingConfirm}
+        disabled={step === 1 || loadingHold || loadingConfirm || loadingCalendar || loadingBusy}
         className="order-2 rounded-xl px-4 py-2 text-sm font-semibold hover:bg-white/10 disabled:opacity-40 sm:order-1"
       >
         Atrás
@@ -427,7 +430,7 @@ export default function BookingModal({
       {step < totalSteps && (
         <Button
           onClick={next}
-          disabled={!canNext || loadingHold || loadingConfirm}
+          disabled={!canNext || loadingHold || loadingConfirm || loadingCalendar || loadingBusy}
           className="order-1 w-full sm:order-2 sm:w-auto"
         >
           Siguiente
@@ -437,7 +440,7 @@ export default function BookingModal({
       {step === scheduleStep && (
         <Button
           onClick={confirm}
-          disabled={!canConfirm || loadingHold || loadingConfirm}
+          disabled={!canConfirm || loadingHold || loadingConfirm || loadingBusy}
           className={[!canConfirm ? "opacity-50" : "", "order-1 w-full sm:order-2 sm:w-auto"].join(" ")}
         >
           {loadingConfirm ? "Confirmando..." : "Confirmar turno"}
@@ -622,7 +625,7 @@ export default function BookingModal({
                     slot?.start?.toISOString?.() === s.start.toISOString();
                   const busy = s.status !== "free";
                   const isPast = s.start.getTime() < Date.now();
-                  const disabled = busy || isPast || loadingHold || loadingConfirm;
+                  const disabled = busy || isPast || loadingBusy || loadingHold || loadingConfirm;
 
                   return (
                     <button
@@ -643,6 +646,8 @@ export default function BookingModal({
                           ? "Ocupado"
                           : isPast
                           ? "Horario pasado"
+                          : loadingBusy
+                          ? "Cargando disponibilidad..."
                           : loadingHold
                           ? "Reservando..."
                           : ""
