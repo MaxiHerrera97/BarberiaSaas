@@ -76,9 +76,9 @@ export default function AdminPage({
   const [loggingOut, setLoggingOut] = useState(false);
 
   const [date, setDate] = useState(() => new Date());
-  const slots = useMemo(() => buildDaySlots(date), [date]);
 
   const [appointments, setAppointments] = useState([]);
+  const [barberDayWindows, setBarberDayWindows] = useState({});
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
@@ -259,6 +259,15 @@ export default function AdminPage({
     return m;
   }, [appointments, visibleBarbers]);
 
+  const slotsByBarber = useMemo(() => {
+    const m = new Map();
+    for (const b of visibleBarbers) {
+      const windows = barberDayWindows[b.id] || null;
+      m.set(b.id, buildDaySlots(date, 30, windows));
+    }
+    return m;
+  }, [visibleBarbers, barberDayWindows, date]);
+
   async function loadAppointments() {
     setLoading(true);
     setErr("");
@@ -294,6 +303,45 @@ export default function AdminPage({
     loadAppointments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedBranchId, date]);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadDayWindowsByBarber() {
+      if (!visibleBarbers.length) {
+        if (alive) setBarberDayWindows({});
+        return;
+      }
+
+      const dateStr = toDateParam(date);
+      const branchQuery =
+        session?.role === "admin" && selectedBranchId && selectedBranchId !== "all"
+          ? `&branchId=${selectedBranchId}`
+          : "";
+
+      try {
+        const entries = await Promise.all(
+          visibleBarbers.map(async (b) => {
+            const data = await apiFetch(
+              `/appointments/availability?date=${dateStr}&barberId=${b.id}${branchQuery}`
+            );
+            return [b.id, Array.isArray(data?.dayWindows) ? data.dayWindows : []];
+          })
+        );
+
+        if (!alive) return;
+        setBarberDayWindows(Object.fromEntries(entries));
+      } catch {
+        if (!alive) return;
+        setBarberDayWindows({});
+      }
+    }
+
+    loadDayWindowsByBarber();
+    return () => {
+      alive = false;
+    };
+  }, [visibleBarbers, date, selectedBranchId, session?.role]);
 
   useEffect(() => {
     let alive = true;
@@ -1431,6 +1479,7 @@ export default function AdminPage({
         >
           {visibleBarbers.map((b) => {
             const list = apptsByBarber.get(b.id) || [];
+            const slots = slotsByBarber.get(b.id) || [];
             const inProg = getInProgress(b.id);
             const next = getNext(b.id);
             const matchedAppointmentIds = new Set(
