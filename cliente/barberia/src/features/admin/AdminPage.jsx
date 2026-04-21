@@ -1433,6 +1433,18 @@ export default function AdminPage({
             const list = apptsByBarber.get(b.id) || [];
             const inProg = getInProgress(b.id);
             const next = getNext(b.id);
+            const matchedAppointmentIds = new Set(
+              slots
+                .map((s) => {
+                  const appt = list.find((a) => {
+                    const t = new Date(a.startAt).getTime();
+                    return t >= s.start.getTime() && t < s.end.getTime();
+                  });
+                  return appt?.id || null;
+                })
+                .filter(Boolean)
+            );
+            const appointmentsOutsideGrid = list.filter((a) => !matchedAppointmentIds.has(a.id));
 
             let remaining = null;
             if (inProg) {
@@ -1576,6 +1588,97 @@ export default function AdminPage({
                       </div>
                     );
                   })}
+
+                  {appointmentsOutsideGrid.length ? (
+                    <div className="mt-2 rounded-2xl bg-zinc-900/30 p-3 ring-1 ring-white/10">
+                      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-300">
+                        Turnos fuera de grilla horaria
+                      </div>
+                      <div className="space-y-2">
+                        {appointmentsOutsideGrid.map((appt) => {
+                          const isSaving = savingId === appt.id;
+                          return (
+                            <div
+                              key={`outside-${appt.id}`}
+                              className="rounded-xl bg-zinc-950/40 p-3 ring-1 ring-white/10"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <div className="text-xs text-zinc-400">
+                                    {formatTime(new Date(appt.startAt))} -{" "}
+                                    {formatTime(new Date(appt.endAt))}
+                                  </div>
+                                  <div className="mt-1 font-semibold">{appt.customerName}</div>
+                                  <div className="text-xs text-zinc-400">
+                                    {appt.serviceNameSnapshot ||
+                                      serviceById.get(appt.serviceId)?.name ||
+                                      "Servicio"}
+                                    {" · "}
+                                    {appt.serviceDurationSnapshot ||
+                                      serviceById.get(appt.serviceId)?.durationMin ||
+                                      30}{" "}
+                                    min
+                                  </div>
+                                </div>
+
+                                <div className="flex flex-col items-end gap-2">
+                                  <span className={statusBadge(appt.status)}>
+                                    {appt.status === "pending"
+                                      ? "Pendiente"
+                                      : appt.status === "in_progress"
+                                      ? "En curso"
+                                      : appt.status === "done"
+                                      ? "Finalizado"
+                                      : appt.status === "no_show"
+                                      ? "No vino"
+                                      : "Cancelado"}
+                                  </span>
+
+                                  {appt.status === "pending" ? (
+                                    <div className="flex flex-wrap justify-end gap-2">
+                                      <button
+                                        disabled={isSaving}
+                                        onClick={() => startCut(appt.id)}
+                                        className="rounded-xl px-3 py-1.5 text-xs font-semibold bg-amber-400 text-zinc-950 hover:bg-amber-300 disabled:opacity-60"
+                                      >
+                                        {isSaving ? "Guardando..." : "Iniciar"}
+                                      </button>
+                                      <button
+                                        disabled={isSaving}
+                                        onClick={() => updateStatus(appt.id, "no_show")}
+                                        className="rounded-xl px-3 py-1.5 text-xs font-semibold hover:bg-white/10 disabled:opacity-60"
+                                      >
+                                        No vino
+                                      </button>
+                                    </div>
+                                  ) : null}
+
+                                  {appt.status === "in_progress" ? (
+                                    <div className="flex flex-wrap justify-end gap-2">
+                                      <button
+                                        disabled={isSaving}
+                                        onClick={() => updateStatus(appt.id, "done")}
+                                        className="rounded-xl px-3 py-1.5 text-xs font-semibold bg-emerald-400 text-zinc-950 hover:bg-emerald-300 disabled:opacity-60"
+                                      >
+                                        {isSaving ? "Guardando..." : "Finalizar"}
+                                      </button>
+                                      <button
+                                        disabled={isSaving}
+                                        onClick={() => updateStatus(appt.id, "cancelled")}
+                                        className="rounded-xl px-3 py-1.5 text-xs font-semibold hover:bg-white/10 disabled:opacity-60"
+                                      >
+                                        Cancelar
+                                      </button>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             );
