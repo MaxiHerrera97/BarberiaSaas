@@ -1482,12 +1482,17 @@ export default function AdminPage({
             const slots = slotsByBarber.get(b.id) || [];
             const inProg = getInProgress(b.id);
             const next = getNext(b.id);
+            const statusesInMainGrid = new Set(["pending", "in_progress", "done"]);
             const matchedAppointmentIds = new Set(
               slots
                 .map((s) => {
                   const appt = list.find((a) => {
                     const t = new Date(a.startAt).getTime();
-                    return t >= s.start.getTime() && t < s.end.getTime();
+                    return (
+                      t >= s.start.getTime() &&
+                      t < s.end.getTime() &&
+                      statusesInMainGrid.has(a.status)
+                    );
                   });
                   return appt?.id || null;
                 })
@@ -1529,7 +1534,11 @@ export default function AdminPage({
                   {slots.map((s) => {
                     const appt = list.find((a) => {
                       const t = new Date(a.startAt).getTime();
-                      return t >= s.start.getTime() && t < s.end.getTime();
+                      return (
+                        t >= s.start.getTime() &&
+                        t < s.end.getTime() &&
+                        statusesInMainGrid.has(a.status)
+                      );
                     });
 
                     const isInProgress = appt?.status === "in_progress";
