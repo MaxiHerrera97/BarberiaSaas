@@ -1405,124 +1405,191 @@ export default function AdminSettingsPage() {
                 <p className="text-xs text-zinc-400">
                   Para francos, feriados o cambios puntuales de horario.
                 </p>
-                <div className="grid gap-2 md:grid-cols-6">
-                  <input
-                    type="date"
-                    value={newBarberException.date}
-                    onChange={(e) =>
-                      setNewBarberException((prev) => ({ ...prev, date: e.target.value }))
-                    }
-                    className="rounded-xl bg-zinc-900 px-3 py-2"
-                  />
-                  <label className="flex items-center gap-2 rounded-xl bg-zinc-900 px-3 py-2 text-sm">
+                <div className="space-y-3">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <label className="space-y-1 text-xs text-zinc-400">
+                      <span className="block">Fecha</span>
+                      <input
+                        type="date"
+                        value={newBarberException.date}
+                        onChange={(e) =>
+                          setNewBarberException((prev) => ({ ...prev, date: e.target.value }))
+                        }
+                        className="w-full rounded-xl bg-zinc-900 px-3 py-2 text-sm text-zinc-100"
+                      />
+                    </label>
+                    <label className="flex items-center gap-2 rounded-xl bg-zinc-900 px-3 py-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={newBarberException.isClosed}
+                        onChange={(e) =>
+                          setNewBarberException((prev) => ({ ...prev, isClosed: e.target.checked }))
+                        }
+                      />
+                      No trabaja ese día
+                    </label>
+                  </div>
+
+                  {!newBarberException.isClosed ? (
+                    <div className="space-y-2">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                        Ventanas horarias
+                      </div>
+
+                      <div className="rounded-xl bg-zinc-950/40 p-3 ring-1 ring-white/10">
+                        <div className="mb-2 text-xs font-semibold text-zinc-300">Ventana 1</div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="space-y-1 text-xs text-zinc-400">
+                            <span className="block">Desde</span>
+                            <input
+                              type="time"
+                              value={newBarberException.open1}
+                              onChange={(e) =>
+                                setNewBarberException((prev) => ({ ...prev, open1: e.target.value }))
+                              }
+                              className="w-full rounded-xl bg-zinc-900 px-3 py-2 text-sm disabled:opacity-40"
+                            />
+                          </label>
+                          <label className="space-y-1 text-xs text-zinc-400">
+                            <span className="block">Hasta</span>
+                            <input
+                              type="time"
+                              value={newBarberException.close1}
+                              onChange={(e) =>
+                                setNewBarberException((prev) => ({ ...prev, close1: e.target.value }))
+                              }
+                              className="w-full rounded-xl bg-zinc-900 px-3 py-2 text-sm disabled:opacity-40"
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl bg-zinc-950/40 p-3 ring-1 ring-white/10">
+                        <div className="mb-2 text-xs font-semibold text-zinc-300">Ventana 2</div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="space-y-1 text-xs text-zinc-400">
+                            <span className="block">Desde</span>
+                            <input
+                              type="time"
+                              value={newBarberException.open2}
+                              onChange={(e) =>
+                                setNewBarberException((prev) => ({ ...prev, open2: e.target.value }))
+                              }
+                              className="w-full rounded-xl bg-zinc-900 px-3 py-2 text-sm disabled:opacity-40"
+                            />
+                          </label>
+                          <label className="space-y-1 text-xs text-zinc-400">
+                            <span className="block">Hasta</span>
+                            <input
+                              type="time"
+                              value={newBarberException.close2}
+                              onChange={(e) =>
+                                setNewBarberException((prev) => ({ ...prev, close2: e.target.value }))
+                              }
+                              className="w-full rounded-xl bg-zinc-900 px-3 py-2 text-sm disabled:opacity-40"
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl bg-zinc-950/40 p-3 ring-1 ring-white/10">
+                        <div className="mb-2 text-xs font-semibold text-zinc-300">Ventana 3</div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="space-y-1 text-xs text-zinc-400">
+                            <span className="block">Desde</span>
+                            <input
+                              type="time"
+                              value={newBarberException.open3}
+                              onChange={(e) =>
+                                setNewBarberException((prev) => ({ ...prev, open3: e.target.value }))
+                              }
+                              className="w-full rounded-xl bg-zinc-900 px-3 py-2 text-sm disabled:opacity-40"
+                            />
+                          </label>
+                          <label className="space-y-1 text-xs text-zinc-400">
+                            <span className="block">Hasta</span>
+                            <input
+                              type="time"
+                              value={newBarberException.close3}
+                              onChange={(e) =>
+                                setNewBarberException((prev) => ({ ...prev, close3: e.target.value }))
+                              }
+                              className="w-full rounded-xl bg-zinc-900 px-3 py-2 text-sm disabled:opacity-40"
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl bg-zinc-950/40 p-3 ring-1 ring-white/10">
+                        <div className="mb-2 text-xs font-semibold text-zinc-300">Ventana 4</div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="space-y-1 text-xs text-zinc-400">
+                            <span className="block">Desde</span>
+                            <input
+                              type="time"
+                              value={newBarberException.open4}
+                              onChange={(e) =>
+                                setNewBarberException((prev) => ({ ...prev, open4: e.target.value }))
+                              }
+                              className="w-full rounded-xl bg-zinc-900 px-3 py-2 text-sm disabled:opacity-40"
+                            />
+                          </label>
+                          <label className="space-y-1 text-xs text-zinc-400">
+                            <span className="block">Hasta</span>
+                            <input
+                              type="time"
+                              value={newBarberException.close4}
+                              onChange={(e) =>
+                                setNewBarberException((prev) => ({ ...prev, close4: e.target.value }))
+                              }
+                              className="w-full rounded-xl bg-zinc-900 px-3 py-2 text-sm disabled:opacity-40"
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl bg-zinc-950/40 p-3 ring-1 ring-white/10">
+                        <div className="mb-2 text-xs font-semibold text-zinc-300">Ventana 5</div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="space-y-1 text-xs text-zinc-400">
+                            <span className="block">Desde</span>
+                            <input
+                              type="time"
+                              value={newBarberException.open5}
+                              onChange={(e) =>
+                                setNewBarberException((prev) => ({ ...prev, open5: e.target.value }))
+                              }
+                              className="w-full rounded-xl bg-zinc-900 px-3 py-2 text-sm disabled:opacity-40"
+                            />
+                          </label>
+                          <label className="space-y-1 text-xs text-zinc-400">
+                            <span className="block">Hasta</span>
+                            <input
+                              type="time"
+                              value={newBarberException.close5}
+                              onChange={(e) =>
+                                setNewBarberException((prev) => ({ ...prev, close5: e.target.value }))
+                              }
+                              className="w-full rounded-xl bg-zinc-900 px-3 py-2 text-sm disabled:opacity-40"
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <label className="space-y-1 text-xs text-zinc-400">
+                    <span className="block">Nota (opcional)</span>
                     <input
-                      type="checkbox"
-                      checked={newBarberException.isClosed}
+                      type="text"
+                      placeholder="Ej: feriado, capacitación, etc."
+                      value={newBarberException.note}
                       onChange={(e) =>
-                        setNewBarberException((prev) => ({ ...prev, isClosed: e.target.checked }))
+                        setNewBarberException((prev) => ({ ...prev, note: e.target.value }))
                       }
+                      className="w-full rounded-xl bg-zinc-900 px-3 py-2 text-sm"
                     />
-                    No trabaja ese día
                   </label>
-                  <input
-                    type="time"
-                    disabled={newBarberException.isClosed}
-                    value={newBarberException.open1}
-                    onChange={(e) =>
-                      setNewBarberException((prev) => ({ ...prev, open1: e.target.value }))
-                    }
-                    className="rounded-xl bg-zinc-900 px-3 py-2 disabled:opacity-40"
-                  />
-                  <input
-                    type="time"
-                    disabled={newBarberException.isClosed}
-                    value={newBarberException.close1}
-                    onChange={(e) =>
-                      setNewBarberException((prev) => ({ ...prev, close1: e.target.value }))
-                    }
-                    className="rounded-xl bg-zinc-900 px-3 py-2 disabled:opacity-40"
-                  />
-                  <input
-                    type="time"
-                    disabled={newBarberException.isClosed}
-                    value={newBarberException.open2}
-                    onChange={(e) =>
-                      setNewBarberException((prev) => ({ ...prev, open2: e.target.value }))
-                    }
-                    className="rounded-xl bg-zinc-900 px-3 py-2 disabled:opacity-40"
-                  />
-                  <input
-                    type="time"
-                    disabled={newBarberException.isClosed}
-                    value={newBarberException.close2}
-                    onChange={(e) =>
-                      setNewBarberException((prev) => ({ ...prev, close2: e.target.value }))
-                    }
-                    className="rounded-xl bg-zinc-900 px-3 py-2 disabled:opacity-40"
-                  />
-                  <input
-                    type="time"
-                    disabled={newBarberException.isClosed}
-                    value={newBarberException.open3}
-                    onChange={(e) =>
-                      setNewBarberException((prev) => ({ ...prev, open3: e.target.value }))
-                    }
-                    className="rounded-xl bg-zinc-900 px-3 py-2 disabled:opacity-40"
-                  />
-                  <input
-                    type="time"
-                    disabled={newBarberException.isClosed}
-                    value={newBarberException.close3}
-                    onChange={(e) =>
-                      setNewBarberException((prev) => ({ ...prev, close3: e.target.value }))
-                    }
-                    className="rounded-xl bg-zinc-900 px-3 py-2 disabled:opacity-40"
-                  />
-                  <input
-                    type="time"
-                    disabled={newBarberException.isClosed}
-                    value={newBarberException.open4}
-                    onChange={(e) =>
-                      setNewBarberException((prev) => ({ ...prev, open4: e.target.value }))
-                    }
-                    className="rounded-xl bg-zinc-900 px-3 py-2 disabled:opacity-40"
-                  />
-                  <input
-                    type="time"
-                    disabled={newBarberException.isClosed}
-                    value={newBarberException.close4}
-                    onChange={(e) =>
-                      setNewBarberException((prev) => ({ ...prev, close4: e.target.value }))
-                    }
-                    className="rounded-xl bg-zinc-900 px-3 py-2 disabled:opacity-40"
-                  />
-                  <input
-                    type="time"
-                    disabled={newBarberException.isClosed}
-                    value={newBarberException.open5}
-                    onChange={(e) =>
-                      setNewBarberException((prev) => ({ ...prev, open5: e.target.value }))
-                    }
-                    className="rounded-xl bg-zinc-900 px-3 py-2 disabled:opacity-40"
-                  />
-                  <input
-                    type="time"
-                    disabled={newBarberException.isClosed}
-                    value={newBarberException.close5}
-                    onChange={(e) =>
-                      setNewBarberException((prev) => ({ ...prev, close5: e.target.value }))
-                    }
-                    className="rounded-xl bg-zinc-900 px-3 py-2 disabled:opacity-40"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Nota (opcional)"
-                    value={newBarberException.note}
-                    onChange={(e) =>
-                      setNewBarberException((prev) => ({ ...prev, note: e.target.value }))
-                    }
-                    className="rounded-xl bg-zinc-900 px-3 py-2 md:col-span-2"
-                  />
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
                   <button
