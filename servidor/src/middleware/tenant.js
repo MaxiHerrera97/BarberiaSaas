@@ -66,7 +66,37 @@ async function resolveTenant(req, res, next) {
     const trialExpired = Number(tenant.trial_expired || 0) === 1;
     const trialInWindow = Number(tenant.trial_in_window || 0) === 1;
 
-    if (tenant.status === "active" && trialExpired) {
+    const billingContext = getCurrentBillingContext(tenant.timezone);
+    let currentMonthPaid = false;
+
+    async function loadCurrentMonthPayment() {
+      try {
+        const [rowsPaid] = await pool.query(
+          `SELECT id
+           FROM tenant_billing_payments
+           WHERE tenant_id = :tenantId
+             AND billing_month = :billingMonth
+           LIMIT 1`,
+          { tenantId: tenant.id, billingMonth: billingContext.billingMonth }
+        );
+        return rowsPaid;
+      } catch (e) {
+        if (e?.code === "ER_NO_SUCH_TABLE") {
+          console.warn(
+            "[billing] Falta tabla tenant_billing_payments. Ejecuta la migración 005_tenant_billing_payments.sql"
+          );
+          return [{ id: 0 }];
+        }
+        throw e;
+      }
+    }
+
+    if (trialExpired || (!trialInWindow && billingContext.isPastDue)) {
+      const paymentRows = await loadCurrentMonthPayment();
+      currentMonthPaid = paymentRows.length > 0;
+    }
+
+    if (tenant.status === "active" && trialExpired && !currentMonthPaid) {
       await pool.query(
         `UPDATE tenants
          SET status = 'inactive'
@@ -75,6 +105,18 @@ async function resolveTenant(req, res, next) {
         { tenantId: tenant.id }
       );
       tenant.status = "inactive";
+    }
+
+    // Si estaba inactivo por fin de prueba pero ya tiene el mes pago, se reactiva automáticamente.
+    if (tenant.status !== "active" && trialExpired && currentMonthPaid) {
+      await pool.query(
+        `UPDATE tenants
+         SET status = 'active'
+         WHERE id = :tenantId
+           AND status <> 'active'`,
+        { tenantId: tenant.id }
+      );
+      tenant.status = "active";
     }
 
     if (tenant.status !== "active") {
@@ -108,32 +150,9 @@ async function resolveTenant(req, res, next) {
       });
     }
 
-    const billingContext = getCurrentBillingContext(tenant.timezone);
     // Si la prueba gratuita sigue vigente, no se suspende por mora.
     if (!trialInWindow && billingContext.isPastDue) {
-      let paymentRows = [];
-      try {
-        const [rowsPaid] = await pool.query(
-          `SELECT id
-           FROM tenant_billing_payments
-           WHERE tenant_id = :tenantId
-             AND billing_month = :billingMonth
-           LIMIT 1`,
-          { tenantId: tenant.id, billingMonth: billingContext.billingMonth }
-        );
-        paymentRows = rowsPaid;
-      } catch (e) {
-        if (e?.code === "ER_NO_SUCH_TABLE") {
-          console.warn(
-            "[billing] Falta tabla tenant_billing_payments. Ejecuta la migración 005_tenant_billing_payments.sql"
-          );
-          paymentRows = [{ id: 0 }];
-        } else {
-          throw e;
-        }
-      }
-
-      if (!paymentRows.length) {
+      if (!currentMonthPaid) {
         return res.status(402).json({
           code: "TENANT_SUSPENDED",
           error: "Aplicacion suspendida, comunicate con tu administrador para dar de alta.",
