@@ -1407,7 +1407,7 @@ export default function AdminSettingsPage() {
                 </p>
                 <div className="space-y-3">
                   <div className="grid gap-3 md:grid-cols-2">
-                    <label className="space-y-1 text-xs text-zinc-400">
+                    <label className="min-w-0 space-y-1 text-xs text-zinc-400">
                       <span className="block">Fecha</span>
                       <input
                         type="date"
@@ -1415,7 +1415,7 @@ export default function AdminSettingsPage() {
                         onChange={(e) =>
                           setNewBarberException((prev) => ({ ...prev, date: e.target.value }))
                         }
-                        className="w-full rounded-xl bg-zinc-900 px-3 py-2 text-sm text-zinc-100"
+                        className="block w-full min-w-0 max-w-full rounded-xl bg-zinc-900 px-3 py-2 text-sm text-zinc-100"
                       />
                     </label>
                     <label className="flex items-center gap-2 rounded-xl bg-zinc-900 px-3 py-2 text-sm">
