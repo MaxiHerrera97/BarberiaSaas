@@ -132,6 +132,7 @@ export default function PlatformDashboardPage() {
   const [togglingMultiBranchId, setTogglingMultiBranchId] = useState(0);
   const [removingPaymentId, setRemovingPaymentId] = useState(0);
   const [methodByTenant, setMethodByTenant] = useState({});
+  const [trialDaysByTenant, setTrialDaysByTenant] = useState({});
   const [okMsg, setOkMsg] = useState("");
   const [openTenantId, setOpenTenantId] = useState(0);
   const [loadingOverviewId, setLoadingOverviewId] = useState(0);
@@ -403,8 +404,13 @@ export default function PlatformDashboardPage() {
   }
 
   async function activateTrial(tenant) {
+    const trialDaysRaw = Number(trialDaysByTenant[tenant.id]);
+    const trialDays = Number.isInteger(trialDaysRaw)
+      ? Math.min(Math.max(trialDaysRaw, 1), 30)
+      : 30;
+
     const yes = window.confirm(
-      `Se activará una prueba gratuita de 7 días para ${tenant.name}. ¿Continuar?`
+      `Se activará una prueba gratuita de ${trialDays} días para ${tenant.name}. ¿Continuar?`
     );
     if (!yes) return;
 
@@ -413,9 +419,9 @@ export default function PlatformDashboardPage() {
     try {
       await platformFetch(`/platform/tenants/${tenant.id}/trial`, {
         method: "PATCH",
-        body: { enabled: true, days: 7 },
+        body: { enabled: true, days: trialDays },
       });
-      markOk(`Prueba gratuita activada por 7 días para ${tenant.name}`);
+      markOk(`Prueba gratuita activada por ${trialDays} días para ${tenant.name}`);
       await refresh();
     } catch (e) {
       setError(e.message || "No se pudo activar la prueba gratuita");
@@ -1251,6 +1257,21 @@ export default function PlatformDashboardPage() {
                     : "Activar"}
                 </button>
 
+                <input
+                  type="number"
+                  min={1}
+                  max={30}
+                  value={trialDaysByTenant[tenant.id] ?? 30}
+                  onChange={(e) =>
+                    setTrialDaysByTenant((prev) => ({
+                      ...prev,
+                      [tenant.id]: e.target.value,
+                    }))
+                  }
+                  className="w-24 rounded-xl bg-zinc-950 px-3 py-2 text-sm ring-1 ring-white/10"
+                  title="Días de prueba (1 a 30)"
+                />
+
                 <button
                   onClick={() => activateTrial(tenant)}
                   disabled={activatingTrialId === tenant.id}
@@ -1259,8 +1280,8 @@ export default function PlatformDashboardPage() {
                   {activatingTrialId === tenant.id
                     ? "Activando..."
                     : tenant?.trial?.enabled
-                    ? "Reiniciar prueba 7 días"
-                    : "Activar prueba 7 días"}
+                    ? "Reiniciar prueba 30 días"
+                    : "Activar prueba 30 días"}
                 </button>
 
                 {tenant.status !== "active" ? (

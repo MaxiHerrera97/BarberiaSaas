@@ -178,7 +178,7 @@ function buildSuspendedMessageFromError(err) {
     const fee = Number(billing.monthlyFeeArs) || 30000;
     const methods = Array.isArray(billing.acceptedMethods) ? billing.acceptedMethods : [];
     const methodsText = methods.length ? methods.join(", ") : "transferencia, mercado_pago, efectivo";
-    return `Tu período de prueba de 7 días finalizó. Para continuar, aboná ARS ${fee} (medios: ${methodsText}) o comunicate con tu administrador.`;
+    return `Tu período de prueba de 30 días finalizó. Para continuar, aboná ARS ${fee} (medios: ${methodsText}) o comunicate con tu administrador.`;
   }
 
   const billing = err?.payload?.billing;

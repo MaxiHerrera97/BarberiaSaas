@@ -969,7 +969,7 @@ router.patch("/tenants/:tenantId/trial", requirePlatformAccess, async (req, res)
 
     const enabled = req.body?.enabled !== false;
     const daysRaw = Number(req.body?.days);
-    const trialDays = Number.isInteger(daysRaw) ? Math.min(Math.max(daysRaw, 1), 30) : 7;
+    const trialDays = Number.isInteger(daysRaw) ? Math.min(Math.max(daysRaw, 1), 30) : 30;
 
     if (enabled) {
       const [upd] = await pool.query(

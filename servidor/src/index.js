@@ -8,6 +8,7 @@ const { pool } = require("./db");
 const { securityHeaders } = require("./middleware/security");
 const { requestContext } = require("./middleware/observability");
 const { resolveTenant } = require("./middleware/tenant");
+const { startCashAutoCloseJob } = require("./jobs/cash-auto-close");
 
 const authRoutes = require("./routes/auth.routes");
 const barbersRoutes = require("./routes/barbers.routes");
@@ -130,4 +131,5 @@ app.use("/branches", branchesRoutes);
 const port = serverConfig.port;
 app.listen(port, () => {
   console.log(`API running on http://localhost:${port}`);
+  startCashAutoCloseJob();
 });

@@ -98,6 +98,37 @@ function formatDateTimeInTimezone(dateLike, timezone) {
   }).format(dateObj);
 }
 
+function formatDateOnlyInTimezone(dateLike, timezone) {
+  const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
+  if (Number.isNaN(d.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone || "America/Argentina/Buenos_Aires",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const y = parts.find((p) => p.type === "year")?.value || "";
+  const m = parts.find((p) => p.type === "month")?.value || "";
+  const day = parts.find((p) => p.type === "day")?.value || "";
+  if (!y || !m || !day) return "";
+  return `${y}-${m}-${day}`;
+}
+
+function getHourMinuteInTimezone(dateLike, timezone) {
+  const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
+  if (Number.isNaN(d.getTime())) return { hour: 0, minute: 0 };
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone || "America/Argentina/Buenos_Aires",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+  return {
+    hour: Number(parts.find((p) => p.type === "hour")?.value || "0"),
+    minute: Number(parts.find((p) => p.type === "minute")?.value || "0"),
+  };
+}
+
 function toMySQLDateTimeLocal(dateLike) {
   const d = dateLike instanceof Date ? new Date(dateLike) : new Date(dateLike);
   if (Number.isNaN(d.getTime())) return "";
@@ -1292,16 +1323,9 @@ router.get("/cash-summary", auth, async (req, res) => {
     const month = monthRows?.[0] || {};
 
     const branchScopeId = branchId || 0;
-    let closing = {
-      isClosed: false,
-      closureDate: dateStr,
-      branchScopeId,
-      closedAt: null,
-      closedByUser: null,
-      snapshot: null,
-    };
+    let closingRows = [];
     try {
-      const [closingRows] = await pool.query(
+      const [rows] = await pool.query(
         `SELECT c.id, c.closed_at, c.services_done, c.revenue_ars, c.commission_ars,
                 c.by_barber_json, c.by_service_json,
                 u.id AS closed_by_user_id, u.full_name AS closed_by_name
@@ -1317,48 +1341,139 @@ router.get("/cash-summary", auth, async (req, res) => {
           branchScopeId,
         }
       );
-      if (closingRows.length) {
-        const row = closingRows[0];
-        let byBarberSnapshot = [];
-        let byServiceSnapshot = [];
-        try {
-          byBarberSnapshot =
-            typeof row.by_barber_json === "string"
-              ? JSON.parse(row.by_barber_json || "[]")
-              : row.by_barber_json || [];
-          byServiceSnapshot =
-            typeof row.by_service_json === "string"
-              ? JSON.parse(row.by_service_json || "[]")
-              : row.by_service_json || [];
-        } catch {
-          byBarberSnapshot = [];
-          byServiceSnapshot = [];
-        }
-        closing = {
-          isClosed: true,
-          closureDate: dateStr,
-          branchScopeId,
-          closedAt: row.closed_at || null,
-          closedAtDisplay: formatDateTimeInTimezone(row.closed_at, req.tenant?.timezone),
-          closedByUser: row.closed_by_user_id
-            ? {
-                id: Number(row.closed_by_user_id),
-                name: row.closed_by_name || "Usuario",
-              }
-            : null,
-          snapshot: {
-            daily: {
-              services_done: Number(row.services_done) || 0,
-              revenue_ars: Number(row.revenue_ars) || 0,
-              commission_ars: Number(row.commission_ars) || 0,
-            },
-            byBarber: byBarberSnapshot,
-            byService: byServiceSnapshot,
-          },
-        };
-      }
+      closingRows = rows;
     } catch (e) {
       if (e?.code !== "ER_NO_SUCH_TABLE") throw e;
+    }
+
+    // Auto-cierre: si el día ya terminó o no quedan turnos activos de ese día.
+    if (!closingRows.length) {
+      try {
+        const todayInTenantTz = formatDateOnlyInTimezone(new Date(), req.tenant?.timezone);
+        const nowTenantHm = getHourMinuteInTimezone(new Date(), req.tenant?.timezone);
+        const isPastDay = !!todayInTenantTz && dateStr < todayInTenantTz;
+        const isToday = !!todayInTenantTz && dateStr === todayInTenantTz;
+
+        const reachedAutoCloseHour = Number(nowTenantHm.hour || 0) >= 23;
+        const shouldAutoClose = isPastDay || (isToday && reachedAutoCloseHour);
+        const doneCount = Number(day.services_done) || 0;
+        if (shouldAutoClose && doneCount > 0) {
+          const byBarber = dayByBarberRows.map((r) => ({
+            barber_id: Number(r.barber_id),
+            barber_name: r.barber_name,
+            services_done: Number(r.services_done) || 0,
+            revenue_ars: Number(r.revenue_ars) || 0,
+            commission_ars: Number(r.commission_ars) || 0,
+          }));
+          const byService = dayByServiceRows.map((r) => ({
+            service_id: Number(r.service_id),
+            service_name: r.service_name,
+            services_done: Number(r.services_done) || 0,
+            revenue_ars: Number(r.revenue_ars) || 0,
+          }));
+
+          await pool.query(
+            `INSERT INTO tenant_cash_closures
+             (tenant_id, branch_scope_id, branch_id, closure_date,
+              services_done, revenue_ars, commission_ars,
+              by_barber_json, by_service_json, closed_by_user_id, notes)
+             VALUES
+             (:tenantId, :branchScopeId, :branchId, :closureDate,
+              :servicesDone, :revenueArs, :commissionArs,
+              :byBarberJson, :byServiceJson, NULL, :notes)
+             ON DUPLICATE KEY UPDATE
+              services_done = VALUES(services_done),
+              revenue_ars = VALUES(revenue_ars),
+              commission_ars = VALUES(commission_ars),
+              by_barber_json = VALUES(by_barber_json),
+              by_service_json = VALUES(by_service_json),
+              closed_by_user_id = NULL,
+              notes = VALUES(notes),
+              closed_at = CURRENT_TIMESTAMP`,
+            {
+              tenantId: req.tenant.id,
+              branchScopeId,
+              branchId: branchId || null,
+              closureDate: dateStr,
+              servicesDone: doneCount,
+              revenueArs: Number(day.revenue_ars) || 0,
+              commissionArs: Number(day.commission_ars) || 0,
+              byBarberJson: JSON.stringify(byBarber),
+              byServiceJson: JSON.stringify(byService),
+              notes: "Cierre diario automático",
+            }
+          );
+
+          const [rowsAfterAutoClose] = await pool.query(
+            `SELECT c.id, c.closed_at, c.services_done, c.revenue_ars, c.commission_ars,
+                    c.by_barber_json, c.by_service_json,
+                    u.id AS closed_by_user_id, u.full_name AS closed_by_name
+             FROM tenant_cash_closures c
+             LEFT JOIN users u ON u.id = c.closed_by_user_id
+             WHERE c.tenant_id = :tenantId
+               AND c.closure_date = :closureDate
+               AND c.branch_scope_id = :branchScopeId
+             LIMIT 1`,
+            {
+              tenantId: req.tenant.id,
+              closureDate: dateStr,
+              branchScopeId,
+            }
+          );
+          closingRows = rowsAfterAutoClose;
+        }
+      } catch (e) {
+        if (e?.code !== "ER_NO_SUCH_TABLE") throw e;
+      }
+    }
+
+    let closing = {
+      isClosed: false,
+      closureDate: dateStr,
+      branchScopeId,
+      closedAt: null,
+      closedByUser: null,
+      snapshot: null,
+    };
+    if (closingRows.length) {
+      const row = closingRows[0];
+      let byBarberSnapshot = [];
+      let byServiceSnapshot = [];
+      try {
+        byBarberSnapshot =
+          typeof row.by_barber_json === "string"
+            ? JSON.parse(row.by_barber_json || "[]")
+            : row.by_barber_json || [];
+        byServiceSnapshot =
+          typeof row.by_service_json === "string"
+            ? JSON.parse(row.by_service_json || "[]")
+            : row.by_service_json || [];
+      } catch {
+        byBarberSnapshot = [];
+        byServiceSnapshot = [];
+      }
+      closing = {
+        isClosed: true,
+        closureDate: dateStr,
+        branchScopeId,
+        closedAt: row.closed_at || null,
+        closedAtDisplay: formatDateTimeInTimezone(row.closed_at, req.tenant?.timezone),
+        closedByUser: row.closed_by_user_id
+          ? {
+              id: Number(row.closed_by_user_id),
+              name: row.closed_by_name || "Usuario",
+            }
+          : null,
+        snapshot: {
+          daily: {
+            services_done: Number(row.services_done) || 0,
+            revenue_ars: Number(row.revenue_ars) || 0,
+            commission_ars: Number(row.commission_ars) || 0,
+          },
+          byBarber: byBarberSnapshot,
+          byService: byServiceSnapshot,
+        },
+      };
     }
 
     return res.json({
