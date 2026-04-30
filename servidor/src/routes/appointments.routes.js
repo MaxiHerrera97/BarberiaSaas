@@ -777,7 +777,13 @@ router.post("/confirm", async (req, res) => {
     }
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: "Error confirmando turno" });
+    if (e?.code === "ER_LOCK_DEADLOCK" || e?.code === "ER_LOCK_WAIT_TIMEOUT") {
+      return res.status(409).json({ error: "Conflicto temporal al confirmar. Reintenta en unos segundos." });
+    }
+    return res.status(500).json({
+      error: "Error confirmando turno",
+      detail: process.env.NODE_ENV !== "production" ? String(e?.message || e) : undefined,
+    });
   }
 });
 

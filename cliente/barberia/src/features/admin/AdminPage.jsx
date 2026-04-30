@@ -79,6 +79,7 @@ export default function AdminPage({
 
   const [appointments, setAppointments] = useState([]);
   const [barberDayWindows, setBarberDayWindows] = useState({});
+  const [barberWindowsLoading, setBarberWindowsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
@@ -243,6 +244,10 @@ export default function AdminPage({
     if (!selectedBranchId || selectedBranchId === "all") return barbers;
     return barbers.filter((b) => String(b.branchId) === String(selectedBranchId));
   }, [session?.role, session?.barberId, barbers, selectedBranchId]);
+  const visibleBarberIdsKey = useMemo(
+    () => visibleBarbers.map((b) => Number(b.id)).sort((a, b) => a - b).join(","),
+    [visibleBarbers]
+  );
 
   const apptsByBarber = useMemo(() => {
     const m = new Map();
@@ -313,6 +318,7 @@ export default function AdminPage({
         return;
       }
 
+      setBarberWindowsLoading(true);
       const dateStr = toDateParam(date);
       const branchQuery =
         session?.role === "admin" && selectedBranchId && selectedBranchId !== "all"
@@ -330,10 +336,17 @@ export default function AdminPage({
         );
 
         if (!alive) return;
-        setBarberDayWindows(Object.fromEntries(entries));
+        setBarberDayWindows((prev) => {
+          const next = { ...prev };
+          for (const [barberId, windows] of entries) {
+            next[barberId] = Array.isArray(windows) ? windows : [];
+          }
+          return next;
+        });
       } catch {
-        if (!alive) return;
-        setBarberDayWindows({});
+        // Mantener último estado válido para evitar "saltos" de grilla.
+      } finally {
+        if (alive) setBarberWindowsLoading(false);
       }
     }
 
@@ -341,7 +354,7 @@ export default function AdminPage({
     return () => {
       alive = false;
     };
-  }, [visibleBarbers, date, selectedBranchId, session?.role]);
+  }, [visibleBarberIdsKey, date, selectedBranchId, session?.role]);
 
   useEffect(() => {
     let alive = true;
@@ -1425,10 +1438,10 @@ export default function AdminPage({
 
               <Button
                 onClick={loadAppointments}
-                disabled={loading}
+                disabled={loading || barberWindowsLoading}
                 className="h-10 w-full whitespace-nowrap px-5 xl:w-auto"
               >
-                {loading ? "Cargando..." : "Actualizar"}
+                {loading || barberWindowsLoading ? "Cargando..." : "Actualizar"}
               </Button>
 
               {session?.role === "admin" && activeBranches.length > 1 ? (
