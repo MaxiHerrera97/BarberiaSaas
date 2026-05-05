@@ -414,12 +414,20 @@ CREATE TABLE IF NOT EXISTS appointments (
   start_at DATETIME NOT NULL,
   end_at DATETIME NOT NULL,
   status ENUM('pending', 'in_progress', 'done', 'no_show', 'cancelled') NOT NULL DEFAULT 'pending',
+  active_start_at DATETIME
+    GENERATED ALWAYS AS (
+      CASE
+        WHEN status IN ('pending', 'in_progress') THEN start_at
+        ELSE NULL
+      END
+    ) STORED,
   notes TEXT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_appointments_tenant_branch_start (tenant_id, branch_id, start_at),
   KEY idx_appointments_tenant_barber_start (tenant_id, barber_id, start_at),
   KEY idx_appointments_tenant_status_start (tenant_id, status, start_at),
+  UNIQUE KEY uq_appointments_active_slot (tenant_id, barber_id, active_start_at),
   CONSTRAINT fk_appointments_tenant
     FOREIGN KEY (tenant_id) REFERENCES tenants(id)
     ON DELETE RESTRICT

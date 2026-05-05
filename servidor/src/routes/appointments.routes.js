@@ -734,33 +734,42 @@ router.post("/confirm", async (req, res) => {
         return res.status(409).json({ error: "Ese horario está en proceso de reserva" });
       }
 
-      const [ins] = await conn.query(
-        `INSERT INTO appointments
-         (tenant_id, branch_id, barber_id, service_id,
-          service_name_snapshot, service_price_ars_snapshot, service_duration_min_snapshot,
-          barber_commission_pct_snapshot, barber_commission_ars_snapshot,
-          customer_name, customer_phone, start_at, end_at, status)
-         VALUES
-         (:tenantId, :branchId, :barberId, :serviceId,
-          :serviceNameSnapshot, :servicePriceSnapshot, :serviceDurationSnapshot,
-          :barberCommissionPctSnapshot, :barberCommissionArsSnapshot,
-          :customerName, :customerPhone, :startAt, :endAt, 'pending')`,
-        {
-          tenantId: req.tenant.id,
-          branchId: h.branch_id,
-          barberId: h.barber_id,
-          serviceId: h.service_id,
-          serviceNameSnapshot: String(service.name || "").trim().slice(0, 120) || null,
-          servicePriceSnapshot: Number(service.price_ars || 0) || null,
-          serviceDurationSnapshot: Number(service.duration_min || 0) || null,
-          barberCommissionPctSnapshot: commissionPct,
-          barberCommissionArsSnapshot: commissionArs,
-          customerName: String(customerName).trim(),
-          customerPhone: phoneDigits, // ✅ guardamos normalizado
-          startAt: h.start_at,
-          endAt: h.end_at,
+      let ins;
+      try {
+        [ins] = await conn.query(
+          `INSERT INTO appointments
+           (tenant_id, branch_id, barber_id, service_id,
+            service_name_snapshot, service_price_ars_snapshot, service_duration_min_snapshot,
+            barber_commission_pct_snapshot, barber_commission_ars_snapshot,
+            customer_name, customer_phone, start_at, end_at, status)
+           VALUES
+           (:tenantId, :branchId, :barberId, :serviceId,
+            :serviceNameSnapshot, :servicePriceSnapshot, :serviceDurationSnapshot,
+            :barberCommissionPctSnapshot, :barberCommissionArsSnapshot,
+            :customerName, :customerPhone, :startAt, :endAt, 'pending')`,
+          {
+            tenantId: req.tenant.id,
+            branchId: h.branch_id,
+            barberId: h.barber_id,
+            serviceId: h.service_id,
+            serviceNameSnapshot: String(service.name || "").trim().slice(0, 120) || null,
+            servicePriceSnapshot: Number(service.price_ars || 0) || null,
+            serviceDurationSnapshot: Number(service.duration_min || 0) || null,
+            barberCommissionPctSnapshot: commissionPct,
+            barberCommissionArsSnapshot: commissionArs,
+            customerName: String(customerName).trim(),
+            customerPhone: phoneDigits, // ✅ guardamos normalizado
+            startAt: h.start_at,
+            endAt: h.end_at,
+          }
+        );
+      } catch (e) {
+        if (e?.code === "ER_DUP_ENTRY") {
+          await conn.rollback();
+          return res.status(409).json({ error: "Ese horario ya no está disponible" });
         }
-      );
+        throw e;
+      }
 
       await conn.query(
         `DELETE FROM appointment_holds WHERE id = :id AND tenant_id = :tenantId`,
