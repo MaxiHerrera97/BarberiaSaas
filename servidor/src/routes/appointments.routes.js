@@ -1366,11 +1366,13 @@ router.get("/cash-summary", auth, async (req, res) => {
       try {
         const todayInTenantTz = formatDateOnlyInTimezone(new Date(), req.tenant?.timezone);
         const nowTenantHm = getHourMinuteInTimezone(new Date(), req.tenant?.timezone);
-        const isPastDay = !!todayInTenantTz && dateStr < todayInTenantTz;
         const isToday = !!todayInTenantTz && dateStr === todayInTenantTz;
 
         const reachedAutoCloseHour = Number(nowTenantHm.hour || 0) >= 23;
-        const shouldAutoClose = isPastDay || (isToday && reachedAutoCloseHour);
+        // Importante: evitar recierres "silenciosos" de días pasados al abrir el resumen,
+        // porque eso pisa `closed_at` y dificulta reabrir/corregir cierres manuales.
+        // El cierre automático histórico lo resuelve el job dedicado.
+        const shouldAutoClose = isToday && reachedAutoCloseHour;
         const doneCount = Number(day.services_done) || 0;
         if (shouldAutoClose && doneCount > 0) {
           const byBarber = dayByBarberRows.map((r) => ({
