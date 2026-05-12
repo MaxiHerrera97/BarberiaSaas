@@ -1578,6 +1578,20 @@ export default function AdminPage({
                             {appt ? (
                               <>
                                 <div className="mt-1 font-semibold">{appt.customerName}</div>
+                                {appt.customerPhone ? (
+                                  <div className="flex items-center gap-2 text-xs text-zinc-400">
+                                    <span>{appt.customerPhone}</span>
+                                    <a
+                                      href={`https://wa.me/${String(appt.customerPhone).replace(/\D/g, "")}`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="rounded-md bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-300 hover:bg-emerald-500/30"
+                                      aria-label={`Abrir WhatsApp de ${appt.customerName || "cliente"}`}
+                                    >
+                                      WA
+                                    </a>
+                                  </div>
+                                ) : null}
                                 <div className="text-xs text-zinc-400">
                                   {appt.serviceNameSnapshot ||
                                     serviceById.get(appt.serviceId)?.name ||
@@ -1680,6 +1694,20 @@ export default function AdminPage({
                                     {formatTime(new Date(appt.endAt))}
                                   </div>
                                   <div className="mt-1 font-semibold">{appt.customerName}</div>
+                                  {appt.customerPhone ? (
+                                    <div className="flex items-center gap-2 text-xs text-zinc-400">
+                                      <span>{appt.customerPhone}</span>
+                                      <a
+                                        href={`https://wa.me/${String(appt.customerPhone).replace(/\D/g, "")}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="rounded-md bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-300 hover:bg-emerald-500/30"
+                                        aria-label={`Abrir WhatsApp de ${appt.customerName || "cliente"}`}
+                                      >
+                                        WA
+                                      </a>
+                                    </div>
+                                  ) : null}
                                   <div className="text-xs text-zinc-400">
                                     {appt.serviceNameSnapshot ||
                                       serviceById.get(appt.serviceId)?.name ||
