@@ -3,9 +3,55 @@ const express = require("express");
 const { pool } = require("../db");
 const { auth } = require("../middleware/auth");
 const { startEndOfDayLocalSQL, parseMySQLDateTimeLocal } = require("../utils/time");
+const { getServerConfig } = require("../config");
 const { v4: uuidv4 } = require("uuid");
 
 const router = express.Router();
+const serverConfig = getServerConfig();
+const APPOINTMENT_PAYMENT_HOLD_MINUTES = 20;
+
+function readRequestHost(req) {
+  const forwardedHost = String(req.headers["x-forwarded-host"] || "")
+    .split(",")[0]
+    .trim();
+  return forwardedHost || String(req.headers.host || "");
+}
+
+function readRequestOrigin(req) {
+  const incomingOrigin = String(req.headers.origin || "").trim();
+  if (incomingOrigin) return incomingOrigin;
+  const protocol = String(req.headers["x-forwarded-proto"] || "https")
+    .split(",")[0]
+    .trim();
+  const host = readRequestHost(req);
+  if (!host) return "";
+  return `${protocol}://${host}`;
+}
+
+async function fetchMpJson(path, accessToken, { method = "GET", body = null, attempts = 2 } = {}) {
+  for (let i = 1; i <= attempts; i += 1) {
+    try {
+      const resp = await fetch(`https://api.mercadopago.com${path}`, {
+        method,
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const data = await resp.json().catch(() => null);
+      if (resp.ok) return { ok: true, status: resp.status, data };
+      if (resp.status < 500 || i === attempts) {
+        return { ok: false, status: resp.status, data };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250 * i));
+    } catch (e) {
+      if (i === attempts) throw e;
+      await new Promise((resolve) => setTimeout(resolve, 250 * i));
+    }
+  }
+  return { ok: false, status: 500, data: null };
+}
 
 /** Limpieza simple de holds expirados */
 async function cleanupExpiredHolds(tenantId) {
@@ -616,10 +662,11 @@ router.delete("/hold/:token", async (req, res) => {
 router.post("/confirm", async (req, res) => {
   try {
     const { holdToken, customerName, customerPhone } = req.body || {};
+    const customerNameNormalized = String(customerName || "").trim().slice(0, 120);
 
     const phoneDigits = String(customerPhone || "").replace(/\D/g, "");
 
-    if (!holdToken || !customerName || !phoneDigits) {
+    if (!holdToken || !customerNameNormalized || !phoneDigits) {
       return res.status(400).json({ error: "Datos incompletos" });
     }
 
@@ -730,6 +777,145 @@ router.post("/confirm", async (req, res) => {
         return res.status(409).json({ error: "Ese horario está en proceso de reserva" });
       }
 
+      const bookingPaymentRequired = Number(req.tenant?.booking_payment_required || 0) === 1;
+      const bookingMpAccessToken = String(req.tenant?.booking_mp_access_token || "").trim();
+      const servicePriceArs = Number(service.price_ars || 0);
+      if (bookingPaymentRequired) {
+        if (!bookingMpAccessToken) {
+          await conn.rollback();
+          return res.status(503).json({
+            error:
+              "La barbería tiene pago previo habilitado pero no configuró Mercado Pago. Contacta al administrador.",
+          });
+        }
+        if (!servicePriceArs || servicePriceArs <= 0) {
+          await conn.rollback();
+          return res.status(400).json({
+            error: "El servicio seleccionado no tiene precio válido para cobrar online.",
+          });
+        }
+
+        const publicApiBase = String(serverConfig.publicApiBaseUrl || "").trim();
+        if (!publicApiBase) {
+          await conn.rollback();
+          return res.status(503).json({
+            error: "Falta PUBLIC_API_BASE_URL para confirmar pagos online de turnos.",
+          });
+        }
+
+        const origin = readRequestOrigin(req);
+        const backBase =
+          origin ||
+          `https://${req.tenant.slug}.${serverConfig.tenantBaseDomains?.[0] || "localhost"}`;
+        const externalReference = `abp|${req.tenant.id}|${holdToken}|${Date.now()}`;
+        const preferencePayload = {
+          external_reference: externalReference,
+          items: [
+            {
+              id: `turno-${h.service_id}`,
+              title: `${String(service.name || "Servicio").trim().slice(0, 120)} - ${
+                req.tenant.name || "Barbería"
+              }`,
+              quantity: 1,
+              unit_price: servicePriceArs,
+              currency_id: "ARS",
+            },
+          ],
+          metadata: {
+            tenant_id: req.tenant.id,
+            hold_token: holdToken,
+            service_id: h.service_id,
+            barber_id: h.barber_id,
+          },
+          payer: {
+            name: customerNameNormalized,
+          },
+          back_urls: {
+            success: `${backBase}/?booking=paid`,
+            pending: `${backBase}/?booking=pending`,
+            failure: `${backBase}/?booking=failure`,
+          },
+          auto_return: "approved",
+          notification_url: `${publicApiBase}/billing/webhook/mercadopago`,
+          statement_descriptor: "TUESTILO TURNO",
+        };
+
+        const mpResp = await fetchMpJson("/checkout/preferences", bookingMpAccessToken, {
+          method: "POST",
+          body: preferencePayload,
+          attempts: 2,
+        });
+        if (!mpResp.ok || !mpResp.data?.id || !mpResp.data?.init_point) {
+          await conn.rollback();
+          const detail =
+            mpResp.data?.message || mpResp.data?.error || `HTTP ${mpResp.status || 502}`;
+          return res.status(502).json({
+            error: `No se pudo iniciar el pago de Mercado Pago: ${detail}`,
+          });
+        }
+
+        const isTestToken = bookingMpAccessToken.toUpperCase().startsWith("TEST-");
+        const checkoutUrl = isTestToken
+          ? mpResp.data.sandbox_init_point || mpResp.data.init_point || ""
+          : mpResp.data.init_point || mpResp.data.sandbox_init_point || "";
+
+        if (!checkoutUrl) {
+          await conn.rollback();
+          return res.status(502).json({
+            error: "Mercado Pago no devolvió un link de pago válido.",
+          });
+        }
+
+        await conn.query(
+          `UPDATE appointment_holds
+           SET expires_at = DATE_ADD(NOW(), INTERVAL :minutes MINUTE)
+           WHERE id = :holdId
+             AND tenant_id = :tenantId`,
+          {
+            holdId: h.id,
+            tenantId: req.tenant.id,
+            minutes: APPOINTMENT_PAYMENT_HOLD_MINUTES,
+          }
+        );
+
+        await conn.query(
+          `INSERT INTO appointment_payment_intents
+           (tenant_id, hold_token, external_reference, mp_preference_id,
+            amount_ars, customer_name, customer_phone, status, checkout_url)
+           VALUES
+           (:tenantId, :holdToken, :externalReference, :preferenceId,
+            :amountArs, :customerName, :customerPhone, 'pending', :checkoutUrl)
+           ON DUPLICATE KEY UPDATE
+            external_reference = VALUES(external_reference),
+            mp_preference_id = VALUES(mp_preference_id),
+            amount_ars = VALUES(amount_ars),
+            customer_name = VALUES(customer_name),
+            customer_phone = VALUES(customer_phone),
+            status = 'pending',
+            checkout_url = VALUES(checkout_url),
+            mp_payment_id = NULL,
+            paid_at = NULL`,
+          {
+            tenantId: req.tenant.id,
+            holdToken,
+            externalReference,
+            preferenceId: String(mpResp.data.id).slice(0, 80),
+            amountArs: servicePriceArs,
+            customerName: customerNameNormalized,
+            customerPhone: phoneDigits,
+            checkoutUrl: String(checkoutUrl).slice(0, 500),
+          }
+        );
+
+        await conn.commit();
+        return res.json({
+          requiresPayment: true,
+          provider: "mercado_pago",
+          checkoutUrl,
+          holdToken,
+        });
+      }
+
       let ins;
       try {
         [ins] = await conn.query(
@@ -749,12 +935,12 @@ router.post("/confirm", async (req, res) => {
             barberId: h.barber_id,
             serviceId: h.service_id,
             serviceNameSnapshot: String(service.name || "").trim().slice(0, 120) || null,
-            servicePriceSnapshot: Number(service.price_ars || 0) || null,
+            servicePriceSnapshot: servicePriceArs || null,
             serviceDurationSnapshot: Number(service.duration_min || 0) || null,
             barberCommissionPctSnapshot: commissionPct,
             barberCommissionArsSnapshot: commissionArs,
-            customerName: String(customerName).trim(),
-            customerPhone: phoneDigits, // ✅ guardamos normalizado
+            customerName: customerNameNormalized,
+            customerPhone: phoneDigits,
             startAt: h.start_at,
             endAt: h.end_at,
           }
@@ -773,7 +959,7 @@ router.post("/confirm", async (req, res) => {
       );
 
       await conn.commit();
-      res.json({ appointmentId: ins.insertId });
+      return res.json({ appointmentId: ins.insertId, requiresPayment: false });
     } catch (e) {
       await conn.rollback();
       throw e;

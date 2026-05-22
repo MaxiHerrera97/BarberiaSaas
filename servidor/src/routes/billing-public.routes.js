@@ -148,6 +148,19 @@ function parseExternalReference(value) {
     };
   }
 
+  // pago de turno: abp|<tenantId>|<holdToken>|<timestamp>
+  const appointmentBooking = ref.match(
+    /^abp\|(\d+)\|([a-f0-9-]{36})\|(\d{10,})$/i
+  );
+  if (appointmentBooking) {
+    return {
+      kind: "appointment_booking",
+      tenantId: Number(appointmentBooking[1]),
+      holdToken: String(appointmentBooking[2]),
+      billingMonth: "",
+    };
+  }
+
   return null;
 }
 
@@ -300,6 +313,255 @@ async function updateTenantSubscription(tenantId, { subscriptionId, status, star
   } catch (e) {
     if (e?.code !== "ER_BAD_FIELD_ERROR") throw e;
   }
+}
+
+async function finalizeAppointmentBookingPayment({
+  tenantId,
+  holdToken,
+  paymentId,
+  paidAmountArs,
+}) {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [intentRows] = await conn.query(
+      `SELECT id, status, amount_ars, customer_name, customer_phone
+       FROM appointment_payment_intents
+       WHERE tenant_id = :tenantId
+         AND hold_token = :holdToken
+       LIMIT 1
+       FOR UPDATE`,
+      { tenantId, holdToken }
+    );
+    if (!intentRows.length) {
+      await conn.rollback();
+      return { ok: false, status: "intent_not_found" };
+    }
+    const intent = intentRows[0];
+    const requiredAmount = Number(intent.amount_ars || 0);
+    const paidAmount = Number(paidAmountArs || 0);
+
+    if (requiredAmount > 0 && paidAmount + 0.01 < requiredAmount) {
+      await conn.query(
+        `UPDATE appointment_payment_intents
+         SET status = 'rejected',
+             mp_payment_id = :paymentId
+         WHERE id = :intentId`,
+        {
+          intentId: intent.id,
+          paymentId: String(paymentId || "").slice(0, 80) || null,
+        }
+      );
+      await conn.commit();
+      return { ok: false, status: "insufficient_amount" };
+    }
+
+    if (String(intent.status || "").toLowerCase() === "approved") {
+      await conn.commit();
+      return { ok: true, status: "already_processed" };
+    }
+
+    const [holds] = await conn.query(
+      `SELECT *
+       FROM appointment_holds
+       WHERE hold_token = :holdToken
+         AND tenant_id = :tenantId
+         AND expires_at > NOW()
+       LIMIT 1
+       FOR UPDATE`,
+      { holdToken, tenantId }
+    );
+    if (!holds.length) {
+      await conn.query(
+        `UPDATE appointment_payment_intents
+         SET status = 'expired'
+         WHERE id = :intentId`,
+        { intentId: intent.id }
+      );
+      await conn.commit();
+      return { ok: false, status: "hold_expired" };
+    }
+    const h = holds[0];
+
+    const [[service]] = await conn.query(
+      `SELECT id, name, price_ars, duration_min
+       FROM services
+       WHERE id = :serviceId
+         AND tenant_id = :tenantId
+       LIMIT 1`,
+      { serviceId: h.service_id, tenantId }
+    );
+    if (!service) {
+      await conn.rollback();
+      return { ok: false, status: "service_not_found" };
+    }
+
+    const [[barber]] = await conn.query(
+      `SELECT id, commission_pct
+       FROM barbers
+       WHERE id = :barberId
+         AND tenant_id = :tenantId
+       LIMIT 1`,
+      { barberId: h.barber_id, tenantId }
+    );
+    if (!barber) {
+      await conn.rollback();
+      return { ok: false, status: "barber_not_found" };
+    }
+
+    const [overlapAppts] = await conn.query(
+      `SELECT id
+       FROM appointments
+       WHERE tenant_id = :tenantId
+         AND barber_id = :barberId
+         AND status IN ('pending','in_progress')
+         AND start_at < :endAt
+         AND end_at > :startAt
+       LIMIT 1`,
+      {
+        tenantId,
+        barberId: h.barber_id,
+        startAt: h.start_at,
+        endAt: h.end_at,
+      }
+    );
+    if (overlapAppts.length) {
+      await conn.rollback();
+      return { ok: false, status: "slot_taken" };
+    }
+
+    const [overlapHolds] = await conn.query(
+      `SELECT id
+       FROM appointment_holds
+       WHERE tenant_id = :tenantId
+         AND barber_id = :barberId
+         AND hold_token <> :holdToken
+         AND expires_at > NOW()
+         AND start_at < :endAt
+         AND end_at > :startAt
+       LIMIT 1`,
+      {
+        tenantId,
+        barberId: h.barber_id,
+        holdToken,
+        startAt: h.start_at,
+        endAt: h.end_at,
+      }
+    );
+    if (overlapHolds.length) {
+      await conn.rollback();
+      return { ok: false, status: "hold_conflict" };
+    }
+
+    const commissionPct = Number(barber.commission_pct || 0);
+    const servicePriceArs = Number(service.price_ars || 0);
+    const commissionArs = Math.round((servicePriceArs * commissionPct) / 100);
+
+    let ins;
+    try {
+      [ins] = await conn.query(
+        `INSERT INTO appointments
+         (tenant_id, branch_id, barber_id, service_id,
+          service_name_snapshot, service_price_ars_snapshot, service_duration_min_snapshot,
+          barber_commission_pct_snapshot, barber_commission_ars_snapshot,
+          customer_name, customer_phone, start_at, end_at, status)
+         VALUES
+         (:tenantId, :branchId, :barberId, :serviceId,
+          :serviceNameSnapshot, :servicePriceSnapshot, :serviceDurationSnapshot,
+          :barberCommissionPctSnapshot, :barberCommissionArsSnapshot,
+          :customerName, :customerPhone, :startAt, :endAt, 'pending')`,
+        {
+          tenantId,
+          branchId: h.branch_id,
+          barberId: h.barber_id,
+          serviceId: h.service_id,
+          serviceNameSnapshot: String(service.name || "").trim().slice(0, 120) || null,
+          servicePriceSnapshot: servicePriceArs || null,
+          serviceDurationSnapshot: Number(service.duration_min || 0) || null,
+          barberCommissionPctSnapshot: commissionPct,
+          barberCommissionArsSnapshot: commissionArs,
+          customerName: String(intent.customer_name || "").trim().slice(0, 120),
+          customerPhone: String(intent.customer_phone || "").replace(/\D/g, "").slice(0, 20),
+          startAt: h.start_at,
+          endAt: h.end_at,
+        }
+      );
+    } catch (e) {
+      if (e?.code === "ER_DUP_ENTRY") {
+        await conn.rollback();
+        return { ok: false, status: "slot_taken" };
+      }
+      throw e;
+    }
+
+    await conn.query(
+      `UPDATE appointment_payment_intents
+       SET status = 'approved',
+           mp_payment_id = :paymentId,
+           paid_at = UTC_TIMESTAMP()
+       WHERE id = :intentId`,
+      {
+        intentId: intent.id,
+        paymentId: String(paymentId || "").slice(0, 80) || null,
+      }
+    );
+
+    await conn.query(
+      `DELETE FROM appointment_holds
+       WHERE id = :holdId
+         AND tenant_id = :tenantId`,
+      { holdId: h.id, tenantId }
+    );
+
+    await conn.commit();
+    return {
+      ok: true,
+      status: "processed",
+      appointmentId: ins?.insertId || null,
+      amountArs: paidAmountArs,
+    };
+  } catch (e) {
+    await conn.rollback();
+    throw e;
+  } finally {
+    conn.release();
+  }
+}
+
+async function fetchPaymentForWebhook(paymentId) {
+  const normalizedPaymentId = String(paymentId || "").trim();
+  if (!normalizedPaymentId) return { ok: false, status: 400, data: null };
+
+  const triedTokens = new Set();
+
+  async function tryWithToken(tokenRaw) {
+    const token = String(tokenRaw || "").trim();
+    if (!token || triedTokens.has(token)) return null;
+    triedTokens.add(token);
+    return fetchMpJson(`/v1/payments/${normalizedPaymentId}`, token, {
+      attempts: 2,
+    });
+  }
+
+  const primary = await tryWithToken(serverConfig.mpAccessToken);
+  if (primary?.ok) return primary;
+
+  const [tokenRows] = await pool.query(
+    `SELECT DISTINCT booking_mp_access_token AS token
+     FROM tenants
+     WHERE booking_payment_required = 1
+       AND booking_payment_provider = 'mercado_pago'
+       AND booking_mp_access_token IS NOT NULL
+       AND booking_mp_access_token <> ''`
+  );
+
+  for (const row of tokenRows) {
+    const result = await tryWithToken(row?.token);
+    if (result?.ok) return result;
+  }
+
+  return primary || { ok: false, status: 502, data: null };
 }
 
 async function createMonthlyCheckout({
@@ -579,10 +841,6 @@ router.all("/webhook/mercadopago", async (req, res) => {
   const eventKey = `mercado_pago:${eventType}:${eventId}`;
 
   try {
-    if (!serverConfig.mpAccessToken) {
-      return res.status(200).json({ ok: true, skipped: "mp_disabled" });
-    }
-
     const tracked = await insertWebhookEvent({
       provider: "mercado_pago",
       eventKey,
@@ -603,6 +861,10 @@ router.all("/webhook/mercadopago", async (req, res) => {
     }
 
     if (type === "preapproval") {
+      if (!serverConfig.mpAccessToken) {
+        await completeWebhookEvent(eventKey, "ignored", "mp_access_token_missing");
+        return res.status(200).json({ ok: true, ignored: true });
+      }
       const mpResp = await fetchMpJson(`/preapproval/${dataId}`, serverConfig.mpAccessToken, {
         attempts: 3,
       });
@@ -629,9 +891,7 @@ router.all("/webhook/mercadopago", async (req, res) => {
       return res.status(200).json({ ok: true });
     }
 
-    const mpResp = await fetchMpJson(`/v1/payments/${dataId}`, serverConfig.mpAccessToken, {
-      attempts: 3,
-    });
+    const mpResp = await fetchPaymentForWebhook(dataId);
     if (!mpResp.ok || !mpResp.data?.id) {
       const detail = mpResp.data?.message || mpResp.data?.error || "payment_not_found";
       await completeWebhookEvent(eventKey, "failed", detail);
@@ -644,13 +904,38 @@ router.all("/webhook/mercadopago", async (req, res) => {
       return res.status(200).json({ ok: true, ignored: true });
     }
 
+    const paymentParsed = parseExternalReference(payment.external_reference);
+    if (paymentParsed?.kind === "appointment_booking") {
+      const bookingTenantId = Number(paymentParsed.tenantId || 0);
+      const holdToken = String(paymentParsed.holdToken || "").trim();
+      if (!bookingTenantId || !holdToken) {
+        await completeWebhookEvent(eventKey, "ignored", "appointment_reference_invalid");
+        return res.status(200).json({ ok: true, ignored: true });
+      }
+
+      const bookingResult = await finalizeAppointmentBookingPayment({
+        tenantId: bookingTenantId,
+        holdToken,
+        paymentId: String(payment.id),
+        paidAmountArs: Number(payment.transaction_amount || 0),
+      });
+
+      if (!bookingResult.ok && !["already_processed", "hold_expired"].includes(bookingResult.status)) {
+        await completeWebhookEvent(eventKey, "failed", bookingResult.status || "booking_payment_error");
+        return res.status(500).json({ ok: false, retry: true });
+      }
+
+      await completeWebhookEvent(eventKey, "processed");
+      return res.status(200).json({ ok: true, kind: "appointment_booking" });
+    }
+
     const metadataTenantId = Number(payment?.metadata?.tenant_id || 0);
     const metadataMonth = String(payment?.metadata?.billing_month || "").trim();
     let tenantId = metadataTenantId;
     let billingMonth = metadataMonth;
 
     if (!tenantId || !isValidBillingMonth(billingMonth)) {
-      const parsed = parseExternalReference(payment.external_reference);
+      const parsed = paymentParsed || parseExternalReference(payment.external_reference);
       tenantId = parsed?.tenantId || 0;
       billingMonth = parsed?.billingMonth || "";
     }

@@ -51,6 +51,7 @@ export default function BookingModal({
   barbers,
   services,
   contactWhatsapp = "",
+  bookingPaymentRequired = false,
 }) {
   const [step, setStep] = useState(1);
 
@@ -78,6 +79,7 @@ export default function BookingModal({
   const [loadingCalendar, setLoadingCalendar] = useState(false);
   const barberCalendarCacheRef = useRef(new Map());
   const availabilityCacheRef = useRef(new Map());
+  const skipReleaseOnUnmountRef = useRef(false);
 
   const activeBranches = useMemo(
     () => (Array.isArray(branches) ? branches.filter((b) => !!b.isActive) : []),
@@ -181,7 +183,7 @@ export default function BookingModal({
   // 🔁 Si se desmonta con hold activo, intentamos liberar (best-effort)
   useEffect(() => {
     return () => {
-      if (holdToken) {
+      if (holdToken && !skipReleaseOnUnmountRef.current) {
         apiFetch(`/appointments/hold/${holdToken}`, { method: "DELETE" }).catch(
           () => {}
         );
@@ -403,7 +405,7 @@ export default function BookingModal({
     setLoadingConfirm(true);
 
     try {
-      await apiFetch("/appointments/confirm", {
+      const data = await apiFetch("/appointments/confirm", {
         method: "POST",
         body: {
           holdToken,
@@ -411,6 +413,12 @@ export default function BookingModal({
           customerPhone: phoneDigits, // ✅ solo dígitos
         },
       });
+
+      if (data?.requiresPayment && data?.checkoutUrl) {
+        skipReleaseOnUnmountRef.current = true;
+        window.location.href = data.checkoutUrl;
+        return;
+      }
 
       alert("Turno confirmado ✅");
       await resetAllAndClose();
@@ -447,7 +455,11 @@ export default function BookingModal({
           disabled={!canConfirm || loadingHold || loadingConfirm || loadingBusy}
           className={[!canConfirm ? "opacity-50" : "", "order-1 w-full sm:order-2 sm:w-auto"].join(" ")}
         >
-          {loadingConfirm ? "Confirmando..." : "Confirmar turno"}
+          {loadingConfirm
+            ? "Confirmando..."
+            : bookingPaymentRequired
+            ? "Ir a pagar y confirmar"
+            : "Confirmar turno"}
         </Button>
       )}
     </div>
@@ -727,6 +739,12 @@ export default function BookingModal({
               {slot && holdToken && !phoneValid && (
                 <p className="text-xs text-amber-400">
                   Ingresá tu WhatsApp (10 dígitos) para confirmar.
+                </p>
+              )}
+
+              {bookingPaymentRequired && slot && holdToken && (
+                <p className="text-xs text-amber-300">
+                  Al confirmar, serás redirigido a Mercado Pago para abonar el total del servicio.
                 </p>
               )}
 

@@ -19,6 +19,10 @@ CREATE TABLE IF NOT EXISTS tenants (
   mp_subscription_started_at DATETIME NULL,
   mp_subscription_updated_at DATETIME NULL,
   multi_branch_enabled TINYINT(1) NOT NULL DEFAULT 0,
+  booking_payment_required TINYINT(1) NOT NULL DEFAULT 0,
+  booking_payment_provider ENUM('none', 'mercado_pago') NOT NULL DEFAULT 'none',
+  booking_mp_access_token VARCHAR(255) NULL,
+  booking_mp_collector_id BIGINT UNSIGNED NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_tenants_slug (slug)
@@ -476,6 +480,31 @@ CREATE TABLE IF NOT EXISTS appointment_holds (
   CONSTRAINT fk_appointment_holds_service
     FOREIGN KEY (service_id) REFERENCES services(id)
     ON DELETE RESTRICT
+    ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS appointment_payment_intents (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id INT UNSIGNED NOT NULL,
+  hold_token CHAR(36) NOT NULL,
+  external_reference VARCHAR(140) NOT NULL,
+  mp_preference_id VARCHAR(80) NOT NULL,
+  mp_payment_id VARCHAR(80) NULL,
+  amount_ars INT UNSIGNED NOT NULL,
+  customer_name VARCHAR(120) NOT NULL,
+  customer_phone VARCHAR(20) NOT NULL,
+  status ENUM('pending', 'approved', 'rejected', 'cancelled', 'expired') NOT NULL DEFAULT 'pending',
+  checkout_url VARCHAR(500) NULL,
+  paid_at DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_appointment_payment_external_reference (external_reference),
+  UNIQUE KEY uq_appointment_payment_hold_token (tenant_id, hold_token),
+  KEY idx_appointment_payment_tenant_status_created (tenant_id, status, created_at),
+  CONSTRAINT fk_appointment_payment_intents_tenant
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+    ON DELETE CASCADE
     ON UPDATE CASCADE
 );
 

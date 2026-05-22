@@ -197,6 +197,13 @@ router.get("/public", async (req, res) => {
     res.json({
       ...data,
       multiBranchEnabled: Number(req.tenant?.multi_branch_enabled || 0) === 1,
+      bookingPayment: {
+        required: Number(req.tenant?.booking_payment_required || 0) === 1,
+        provider:
+          Number(req.tenant?.booking_payment_required || 0) === 1
+            ? String(req.tenant?.booking_payment_provider || "mercado_pago")
+            : "none",
+      },
     });
   } catch (e) {
     console.error(e);
@@ -210,6 +217,13 @@ router.get("/admin", auth, requireRole("admin"), async (req, res) => {
     res.json({
       ...data,
       multiBranchEnabled: Number(req.tenant?.multi_branch_enabled || 0) === 1,
+      bookingPayment: {
+        required: Number(req.tenant?.booking_payment_required || 0) === 1,
+        provider:
+          Number(req.tenant?.booking_payment_required || 0) === 1
+            ? String(req.tenant?.booking_payment_provider || "mercado_pago")
+            : "none",
+      },
     });
   } catch (e) {
     console.error(e);

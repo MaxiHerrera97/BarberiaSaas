@@ -130,9 +130,11 @@ export default function PlatformDashboardPage() {
   const [activatingTrialId, setActivatingTrialId] = useState(0);
   const [deletingTenantId, setDeletingTenantId] = useState(0);
   const [togglingMultiBranchId, setTogglingMultiBranchId] = useState(0);
+  const [savingBookingPaymentId, setSavingBookingPaymentId] = useState(0);
   const [removingPaymentId, setRemovingPaymentId] = useState(0);
   const [methodByTenant, setMethodByTenant] = useState({});
   const [trialDaysByTenant, setTrialDaysByTenant] = useState({});
+  const [bookingPaymentByTenant, setBookingPaymentByTenant] = useState({});
   const [okMsg, setOkMsg] = useState("");
   const [openTenantId, setOpenTenantId] = useState(0);
   const [loadingOverviewId, setLoadingOverviewId] = useState(0);
@@ -236,6 +238,18 @@ export default function PlatformDashboardPage() {
         setMethodByTenant(
           Object.fromEntries((data.tenants || []).map((t) => [t.id, "transferencia"]))
         );
+        setBookingPaymentByTenant(
+          Object.fromEntries(
+            (data.tenants || []).map((t) => [
+              t.id,
+              {
+                required: t?.bookingPayment?.required === true,
+                mpAccessToken: "",
+                mpCollectorId: t?.bookingPayment?.collectorId || "",
+              },
+            ])
+          )
+        );
       } catch {
         if (!alive) return;
         clearPlatformSession();
@@ -311,6 +325,24 @@ export default function PlatformDashboardPage() {
       setOverview(data);
       setBillingMetrics(metrics);
       setAuditLogs(Array.isArray(audit?.logs) ? audit.logs : []);
+      setBookingPaymentByTenant((prev) => {
+        const next = { ...prev };
+        for (const tenant of data?.tenants || []) {
+          const current = prev?.[tenant.id] || {};
+          next[tenant.id] = {
+            required:
+              current.required !== undefined
+                ? current.required
+                : tenant?.bookingPayment?.required === true,
+            mpAccessToken: current.mpAccessToken || "",
+            mpCollectorId:
+              current.mpCollectorId !== undefined && String(current.mpCollectorId) !== ""
+                ? current.mpCollectorId
+                : tenant?.bookingPayment?.collectorId || "",
+          };
+        }
+        return next;
+      });
     } catch (e) {
       setError(e.message || "No se pudo refrescar el dashboard");
     } finally {
@@ -449,6 +481,49 @@ export default function PlatformDashboardPage() {
       setError(e.message || "No se pudo actualizar multi-sucursal");
     } finally {
       setTogglingMultiBranchId(0);
+    }
+  }
+
+  async function saveBookingPaymentSettings(tenant) {
+    const draft = bookingPaymentByTenant[tenant.id] || {};
+    const required = draft.required === true;
+    const mpAccessToken = String(draft.mpAccessToken || "").trim();
+    const mpCollectorId = String(draft.mpCollectorId || "").trim();
+
+    if (required && !mpAccessToken && tenant?.bookingPayment?.required !== true) {
+      setError("Para habilitar pago previo debes ingresar el Access Token de Mercado Pago.");
+      return;
+    }
+
+    setSavingBookingPaymentId(tenant.id);
+    setError("");
+    try {
+      await platformFetch(`/platform/tenants/${tenant.id}/booking-payment`, {
+        method: "PATCH",
+        body: {
+          required,
+          mpAccessToken,
+          mpCollectorId: mpCollectorId || null,
+        },
+      });
+      markOk(
+        required
+          ? `Pago previo habilitado para ${tenant.name}`
+          : `Pago previo deshabilitado para ${tenant.name}`
+      );
+      setBookingPaymentByTenant((prev) => ({
+        ...prev,
+        [tenant.id]: {
+          required,
+          mpAccessToken: "",
+          mpCollectorId,
+        },
+      }));
+      await refresh();
+    } catch (e) {
+      setError(e.message || "No se pudo actualizar pago previo de reservas");
+    } finally {
+      setSavingBookingPaymentId(0);
     }
   }
 
@@ -1176,6 +1251,10 @@ export default function PlatformDashboardPage() {
                     {tenant.multiBranchEnabled ? "habilitado" : "deshabilitado"}
                   </div>
                   <div className="mt-1 text-xs text-zinc-500">
+                    Pago previo turnos:{" "}
+                    {tenant?.bookingPayment?.required ? "habilitado" : "deshabilitado"}
+                  </div>
+                  <div className="mt-1 text-xs text-zinc-500">
                     Prueba:{" "}
                     {tenant?.trial?.enabled
                       ? `activa hasta ${tenant?.trial?.endsAt || "-"}`
@@ -1247,6 +1326,53 @@ export default function PlatformDashboardPage() {
                     : tenant.multiBranchEnabled
                     ? "Deshabilitar multi-sucursal"
                     : "Habilitar multi-sucursal"}
+                </button>
+
+                <label className="inline-flex items-center gap-2 rounded-xl bg-zinc-950 px-3 py-2 text-xs text-zinc-200 ring-1 ring-white/10">
+                  <input
+                    type="checkbox"
+                    checked={bookingPaymentByTenant[tenant.id]?.required === true}
+                    onChange={(e) =>
+                      setBookingPaymentByTenant((prev) => ({
+                        ...prev,
+                        [tenant.id]: {
+                          ...(prev[tenant.id] || {}),
+                          required: e.target.checked,
+                        },
+                      }))
+                    }
+                  />
+                  Requerir pago previo en reservas
+                </label>
+
+                <input
+                  type="text"
+                  value={bookingPaymentByTenant[tenant.id]?.mpAccessToken || ""}
+                  onChange={(e) =>
+                    setBookingPaymentByTenant((prev) => ({
+                      ...prev,
+                      [tenant.id]: {
+                        ...(prev[tenant.id] || {}),
+                        mpAccessToken: e.target.value,
+                      },
+                    }))
+                  }
+                  placeholder={
+                    tenant?.bookingPayment?.required
+                      ? "Dejar vacío para mantener token actual"
+                      : "MP Access Token (si habilitas pago previo)"
+                  }
+                  className="min-w-[260px] rounded-xl bg-zinc-950 px-3 py-2 text-xs ring-1 ring-white/10"
+                />
+
+                <button
+                  onClick={() => saveBookingPaymentSettings(tenant)}
+                  disabled={savingBookingPaymentId === tenant.id}
+                  className="rounded-xl bg-zinc-800 px-4 py-2 text-sm font-semibold text-zinc-100 disabled:opacity-60"
+                >
+                  {savingBookingPaymentId === tenant.id
+                    ? "Guardando..."
+                    : "Guardar pago previo"}
                 </button>
 
                 <button

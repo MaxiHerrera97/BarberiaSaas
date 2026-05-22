@@ -43,6 +43,7 @@ async function resolveTenant(req, res, next) {
 
     const [rows] = await pool.query(
       `SELECT id, slug, name, plan, status, timezone, multi_branch_enabled,
+              booking_payment_required, booking_payment_provider, booking_mp_access_token, booking_mp_collector_id,
               mp_subscription_id,
               mp_subscription_status,
               trial_active, trial_starts_at, trial_ends_at,

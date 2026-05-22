@@ -391,7 +391,9 @@ router.get("/tenants", requirePlatformToken, async (req, res) => {
     const [tenants] = await pool.query(
       `SELECT id, slug, name, plan, status, timezone,
               trial_active, trial_starts_at, trial_ends_at,
-              multi_branch_enabled, created_at
+              multi_branch_enabled,
+              booking_payment_required, booking_payment_provider, booking_mp_collector_id,
+              created_at
        FROM tenants
        ORDER BY id ASC`
     );
@@ -426,6 +428,14 @@ router.get("/tenants", requirePlatformToken, async (req, res) => {
       paymentRows.push({
         ...tenant,
         multiBranchEnabled: Number(tenant.multi_branch_enabled || 0) === 1,
+        bookingPayment: {
+          required: Number(tenant.booking_payment_required || 0) === 1,
+          provider:
+            Number(tenant.booking_payment_required || 0) === 1
+              ? String(tenant.booking_payment_provider || "mercado_pago")
+              : "none",
+          collectorId: tenant.booking_mp_collector_id || null,
+        },
         trial: {
           enabled: Number(tenant.trial_active || 0) === 1,
           startedAt: tenant.trial_starts_at || null,
@@ -463,7 +473,8 @@ router.get("/billing/overview", requirePlatformToken, async (req, res) => {
     const [tenants] = await pool.query(
       `SELECT id, slug, name, plan, status, timezone,
               trial_active, trial_starts_at, trial_ends_at,
-              multi_branch_enabled
+              multi_branch_enabled,
+              booking_payment_required, booking_payment_provider, booking_mp_collector_id
        FROM tenants
        ORDER BY id ASC`
     );
@@ -506,6 +517,14 @@ router.get("/billing/overview", requirePlatformToken, async (req, res) => {
         status: tenant.status,
         timezone: tenant.timezone,
         multiBranchEnabled: Number(tenant.multi_branch_enabled || 0) === 1,
+        bookingPayment: {
+          required: Number(tenant.booking_payment_required || 0) === 1,
+          provider:
+            Number(tenant.booking_payment_required || 0) === 1
+              ? String(tenant.booking_payment_provider || "mercado_pago")
+              : "none",
+          collectorId: tenant.booking_mp_collector_id || null,
+        },
         trial: {
           enabled: Number(tenant.trial_active || 0) === 1,
           startedAt: tenant.trial_starts_at || null,
@@ -1088,6 +1107,85 @@ router.patch("/tenants/:tenantId/multi-branch", requirePlatformToken, async (req
   }
 });
 
+router.patch("/tenants/:tenantId/booking-payment", requirePlatformToken, async (req, res) => {
+  try {
+    const tenantId = Number(req.params.tenantId);
+    if (!Number.isInteger(tenantId) || tenantId <= 0) {
+      return res.status(400).json({ error: "tenantId inválido" });
+    }
+
+    const required = req.body?.required === true;
+    const provider = required ? "mercado_pago" : "none";
+    const incomingMpAccessToken = String(req.body?.mpAccessToken || "").trim();
+    const mpCollectorIdRaw = req.body?.mpCollectorId;
+    const mpCollectorId = Number.isFinite(Number(mpCollectorIdRaw)) && Number(mpCollectorIdRaw) > 0
+      ? Number(mpCollectorIdRaw)
+      : null;
+
+    let mpAccessToken = incomingMpAccessToken;
+    if (required && !mpAccessToken) {
+      const [[existing]] = await pool.query(
+        `SELECT booking_mp_access_token
+         FROM tenants
+         WHERE id = :tenantId
+         LIMIT 1`,
+        { tenantId }
+      );
+      mpAccessToken = String(existing?.booking_mp_access_token || "").trim();
+      if (!mpAccessToken) {
+        return res.status(400).json({
+          error: "Para habilitar pago previo debes informar mpAccessToken.",
+        });
+      }
+    }
+
+    const [upd] = await pool.query(
+      `UPDATE tenants
+       SET booking_payment_required = :required,
+           booking_payment_provider = :provider,
+           booking_mp_access_token = :mpAccessToken,
+           booking_mp_collector_id = :mpCollectorId
+       WHERE id = :tenantId`,
+      {
+        tenantId,
+        required: required ? 1 : 0,
+        provider,
+        mpAccessToken: required ? mpAccessToken : null,
+        mpCollectorId,
+      }
+    );
+
+    if (!upd.affectedRows) {
+      return res.status(404).json({ error: "Tenant no existe" });
+    }
+
+    await writePlatformAudit({
+      actorUsername: req.platformUser?.username || "platform",
+      action: "tenant.booking_payment.update",
+      tenantId,
+      details: {
+        required: required ? 1 : 0,
+        provider,
+        hasAccessToken: required ? 1 : 0,
+        collectorId: mpCollectorId,
+      },
+    });
+
+    return res.json({
+      ok: true,
+      tenantId,
+      bookingPayment: {
+        required,
+        provider,
+        collectorId: mpCollectorId,
+      },
+    });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: "Error actualizando pago previo de reservas" });
+  }
+});
+
 router.delete("/tenants/:tenantId/permanent", requirePlatformToken, async (req, res) => {
   try {
     const tenantId = Number(req.params.tenantId);
@@ -1171,7 +1269,9 @@ router.get("/tenants/:tenantId/overview", requirePlatformToken, async (req, res)
     const [[tenant]] = await pool.query(
       `SELECT id, slug, name, plan, status, timezone,
               trial_active, trial_starts_at, trial_ends_at,
-              multi_branch_enabled, created_at
+              multi_branch_enabled,
+              booking_payment_required, booking_payment_provider, booking_mp_collector_id,
+              created_at
        FROM tenants
        WHERE id = :tenantId
        LIMIT 1`,
@@ -1275,6 +1375,14 @@ router.get("/tenants/:tenantId/overview", requirePlatformToken, async (req, res)
       tenant: {
         ...tenant,
         multiBranchEnabled: Number(tenant.multi_branch_enabled || 0) === 1,
+        bookingPayment: {
+          required: Number(tenant.booking_payment_required || 0) === 1,
+          provider:
+            Number(tenant.booking_payment_required || 0) === 1
+              ? String(tenant.booking_payment_provider || "mercado_pago")
+              : "none",
+          collectorId: tenant.booking_mp_collector_id || null,
+        },
         trial: {
           enabled: Number(tenant.trial_active || 0) === 1,
           startedAt: tenant.trial_starts_at || null,

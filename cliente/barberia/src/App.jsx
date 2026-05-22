@@ -271,6 +271,7 @@ export default function App() {
   const [contactWhatsapp, setContactWhatsapp] = useState("");
   const [contactInstagram, setContactInstagram] = useState("");
   const [address, setAddress] = useState("");
+  const [bookingPaymentRequired, setBookingPaymentRequired] = useState(false);
   const [loadingCatalog, setLoadingCatalog] = useState(true);
   const [catalogError, setCatalogError] = useState("");
   const [tenantSuspended, setTenantSuspended] = useState(false);
@@ -319,6 +320,7 @@ export default function App() {
         setContactWhatsapp(tenantConfig?.settings?.contactWhatsapp || "");
         setContactInstagram(tenantConfig?.settings?.contactInstagram || "");
         setAddress(tenantConfig?.settings?.address || "");
+        setBookingPaymentRequired(tenantConfig?.bookingPayment?.required === true);
         const incomingLogoUrl = String(tenantConfig?.settings?.logoUrl || "").trim();
         setLogoUrl(
           incomingLogoUrl
@@ -490,6 +492,7 @@ export default function App() {
         barbers={barbers}
         services={services}
         contactWhatsapp={contactWhatsapp}
+        bookingPaymentRequired={bookingPaymentRequired}
       />
     </div>
   );
