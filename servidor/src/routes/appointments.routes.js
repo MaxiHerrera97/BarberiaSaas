@@ -7,8 +7,6 @@ const { v4: uuidv4 } = require("uuid");
 
 const router = express.Router();
 
-console.log("🔥 appointments.routes.js LOADED");
-
 /** Limpieza simple de holds expirados */
 async function cleanupExpiredHolds(tenantId) {
   await pool.query(
@@ -467,8 +465,6 @@ router.get("/barber-calendar", async (req, res) => {
  * ✅ Ahora valida horario de atención y domingo cerrado.
  */
 router.post("/hold", async (req, res) => {
-  console.log("🔥 POST /appointments/hold", req.body);
-
   try {
     await cleanupExpiredHolds(req.tenant.id);
 

@@ -354,7 +354,7 @@ export default function AdminPage({
     return () => {
       alive = false;
     };
-  }, [visibleBarberIdsKey, date, selectedBranchId, session?.role]);
+  }, [visibleBarbers, visibleBarberIdsKey, date, selectedBranchId, session?.role]);
 
   useEffect(() => {
     let alive = true;
@@ -1219,7 +1219,7 @@ export default function AdminPage({
             </div>
 
             <div className="mt-3 grid gap-3 lg:grid-cols-2">
-              <div className="rounded-xl bg-zinc-950/60 p-3 ring-1 ring-white/10">
+              <div className="min-w-0 rounded-xl bg-zinc-950/60 p-3 ring-1 ring-white/10">
                 <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
                   Por barbero (día)
                 </div>
@@ -1230,10 +1230,10 @@ export default function AdminPage({
                     {dayByBarberSource.map((row) => (
                       <div
                         key={row.barber_id}
-                        className="flex items-center justify-between rounded-lg bg-zinc-900/60 px-2 py-1 ring-1 ring-white/10"
+                        className="flex min-w-0 items-center justify-between gap-2 overflow-hidden rounded-lg bg-zinc-900/60 px-2 py-1 ring-1 ring-white/10"
                       >
-                        <div className="truncate pr-2 text-zinc-200">{row.barber_name}</div>
-                        <div className="shrink-0 font-semibold text-emerald-300">
+                        <div className="min-w-0 flex-1 truncate text-zinc-200">{row.barber_name}</div>
+                        <div className="shrink-0 text-right font-semibold text-emerald-300">
                           {new Intl.NumberFormat("es-AR", {
                             style: "currency",
                             currency: "ARS",
@@ -1246,7 +1246,7 @@ export default function AdminPage({
                 )}
               </div>
 
-              <div className="rounded-xl bg-zinc-950/60 p-3 ring-1 ring-white/10">
+              <div className="min-w-0 rounded-xl bg-zinc-950/60 p-3 ring-1 ring-white/10">
                 <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
                   Servicios top (día)
                 </div>
@@ -1257,10 +1257,10 @@ export default function AdminPage({
                     {dayByServiceSource.map((row) => (
                       <div
                         key={row.service_id}
-                        className="flex items-center justify-between rounded-lg bg-zinc-900/60 px-2 py-1 ring-1 ring-white/10"
+                        className="flex min-w-0 items-center justify-between gap-2 overflow-hidden rounded-lg bg-zinc-900/60 px-2 py-1 ring-1 ring-white/10"
                       >
-                        <div className="truncate pr-2 text-zinc-200">{row.service_name}</div>
-                        <div className="shrink-0 font-semibold text-amber-300">
+                        <div className="min-w-0 flex-1 truncate text-zinc-200">{row.service_name}</div>
+                        <div className="shrink-0 text-right font-semibold text-amber-300">
                           {new Intl.NumberFormat("es-AR", {
                             style: "currency",
                             currency: "ARS",

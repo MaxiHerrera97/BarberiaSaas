@@ -463,6 +463,15 @@ async function startMercadoPago(req, res) {
         : serverConfig.mpBillingMode === "subscription"
         ? "subscription"
         : "checkout";
+    const origin = readOrigin(req);
+    const backBase =
+      origin || `https://${tenant.slug}.${serverConfig.tenantBaseDomains?.[0] || "localhost"}`;
+    const publicApiBase = String(serverConfig.publicApiBaseUrl || "").trim();
+    if (!publicApiBase) {
+      return res.status(503).json({
+        error: "Falta PUBLIC_API_BASE_URL para confirmar pagos online.",
+      });
+    }
 
     const currentSubscription = await getTenantSubscription(tenant.id);
     if (mode === "subscription" && currentSubscription.manualOnly) {
@@ -477,15 +486,6 @@ async function startMercadoPago(req, res) {
         ...checkout,
         fallbackFromSubscription: true,
         fallbackReason: "subscription_paused_or_cancelled",
-      });
-    }
-    const origin = readOrigin(req);
-    const backBase =
-      origin || `https://${tenant.slug}.${serverConfig.tenantBaseDomains?.[0] || "localhost"}`;
-    const publicApiBase = String(serverConfig.publicApiBaseUrl || "").trim();
-    if (!publicApiBase) {
-      return res.status(503).json({
-        error: "Falta PUBLIC_API_BASE_URL para confirmar pagos online.",
       });
     }
 

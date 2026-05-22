@@ -554,18 +554,22 @@ export default function PlatformDashboardPage() {
 
   async function resetUserPassword(tenantId, userId, username) {
     const custom = window.prompt(
-      `Nueva contraseña para ${username} (deja vacío para generar automática):`,
+      `Nueva contraseña para ${username} (mínimo 8 caracteres):`,
       ""
     );
     if (custom === null) return;
+    if (custom.trim().length < 8) {
+      setError("La contraseña debe tener al menos 8 caracteres.");
+      return;
+    }
     setSavingUserId(userId);
     setError("");
     try {
-      const resp = await platformFetch(`/platform/tenants/${tenantId}/users/${userId}/reset-password`, {
+      await platformFetch(`/platform/tenants/${tenantId}/users/${userId}/reset-password`, {
         method: "POST",
-        body: custom.trim() ? { newPassword: custom.trim() } : {},
+        body: { newPassword: custom.trim() },
       });
-      markOk(`Contraseña actualizada para ${username}: ${resp.newPassword}`);
+      markOk(`Contraseña actualizada para ${username}`);
       refreshAuditOnly();
     } catch (e) {
       setError(e.message || "No se pudo resetear contraseña");

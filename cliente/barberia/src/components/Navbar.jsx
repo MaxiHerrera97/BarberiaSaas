@@ -12,7 +12,6 @@ function getBrandInitials(brandName) {
 }
 
 export default function Navbar({
-  onOpenBooking,
   brandName = "Tu Estilo - Barberia",
   tagline = "",
   logoUrl = "",

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useLocation } from "react-router-dom";
 import { apiFetch } from "../../lib/api";
 import { formatTime, parseMySQLDateTimeLocal } from "../../lib/time";
@@ -119,7 +119,7 @@ export default function DisplayPages({
     return () => clearInterval(t);
   }, []);
 
-  async function loadAppointments() {
+  const loadAppointments = useCallback(async () => {
     setErr("");
     setLoading(true);
     try {
@@ -132,19 +132,19 @@ export default function DisplayPages({
     } finally {
       setLoading(false);
     }
-  }
+  }, [displayBranchId]);
 
   // Auto refresh (TV)
   useEffect(() => {
     loadAppointments();
     const t = setInterval(loadAppointments, 10000); // cada 10s
     return () => clearInterval(t);
-  }, [displayBranchId]);
+  }, [loadAppointments]);
 
   // Agrupar por barbero
   const apptsByBarber = useMemo(() => {
     const m = new Map();
-    for (const b of barbers) m.set(b.id, []);
+    for (const b of visibleBarbers) m.set(b.id, []);
     for (const a of appointments) m.get(a.barberId)?.push(a);
 
     for (const [k, arr] of m.entries()) {

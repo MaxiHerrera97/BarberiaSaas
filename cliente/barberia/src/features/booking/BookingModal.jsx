@@ -1,5 +1,5 @@
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Modal from "../../ui/Modal";
 import Button from "../../ui/Button";
 import { apiFetch } from "../../lib/api";
@@ -41,6 +41,9 @@ function isValidArPhone(digits) {
   return /^\d{10}$/.test(digits);
 }
 
+const CALENDAR_CACHE_TTL_MS = 60 * 1000;
+const AVAILABILITY_CACHE_TTL_MS = 30 * 1000;
+
 export default function BookingModal({
   open,
   onClose,
@@ -49,9 +52,6 @@ export default function BookingModal({
   services,
   contactWhatsapp = "",
 }) {
-  const CALENDAR_CACHE_TTL_MS = 60 * 1000;
-  const AVAILABILITY_CACHE_TTL_MS = 30 * 1000;
-
   const [step, setStep] = useState(1);
 
   const [branchId, setBranchId] = useState(null);
@@ -118,13 +118,15 @@ export default function BookingModal({
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
-  function getBarberCalendarCacheKey() {
-    return `${barberId || 0}|${branchId || 0}`;
-  }
+  const getBarberCalendarCacheKey = useCallback(
+    () => `${barberId || 0}|${branchId || 0}`,
+    [barberId, branchId]
+  );
 
-  function getAvailabilityCacheKey(dateObj = date) {
-    return `${barberId || 0}|${branchId || 0}|${toDateParam(dateObj)}`;
-  }
+  const getAvailabilityCacheKey = useCallback(
+    (dateObj = date) => `${barberId || 0}|${branchId || 0}|${toDateParam(dateObj)}`,
+    [barberId, branchId, date]
+  );
 
   /** ✅ Libera el hold actual si existe */
   async function releaseHold() {
@@ -248,7 +250,7 @@ export default function BookingModal({
     return () => {
       alive = false;
     };
-  }, [open, barberId, showBranchStep, branchId]);
+  }, [open, barberId, showBranchStep, branchId, date, getBarberCalendarCacheKey]);
 
   // ✅ Cargar disponibilidad real (appointments + holds) en step 5
   useEffect(() => {
@@ -320,7 +322,7 @@ export default function BookingModal({
     return () => {
       alive = false;
     };
-  }, [open, step, barberId, date, branchId, scheduleStep]);
+  }, [open, step, barberId, date, branchId, scheduleStep, getAvailabilityCacheKey]);
 
   // ✅ slots dentro de ventanas reales + busy marcado (lo hace buildSlots)
   const slots = useMemo(() => {

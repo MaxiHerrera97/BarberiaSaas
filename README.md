@@ -138,7 +138,10 @@ Payload ejemplo:
 - Desde el día `6`, si no hay pago registrado del mes actual, la app devuelve `TENANT_SUSPENDED` y la landing muestra pantalla de suspensión.
 - Métodos aceptados: `transferencia`, `mercado_pago`, `efectivo`.
 
-Endpoints de plataforma (requieren `Authorization: Bearer <token plataforma>` o `x-onboarding-key`):
+Endpoints de plataforma:
+
+- `x-onboarding-key` solo habilita `POST /platform/tenants/onboard` y `GET /platform/config`.
+- El resto requiere `Authorization: Bearer <token plataforma>`.
 
 - `GET /platform/tenants` → listado de tenants + estado de pago del mes actual.
 - `GET /platform/config` → configuración de plataforma (dominios base, defaults).
@@ -156,8 +159,7 @@ Endpoints de plataforma (requieren `Authorization: Bearer <token plataforma>` o 
 Panel maestro inicial:
 
 - Ruta frontend: `/platform/login`
-- Usuario por defecto: `anthony`
-- Contraseña por defecto: `PoleWorkout%1`
+- Requiere definir `PLATFORM_ADMIN_USERNAME` y `PLATFORM_ADMIN_PASSWORD` en entorno.
 - Después del login, módulo inicial en `/platform` con:
   - alta de barberías (tenant + admin inicial + preview de subdominio)
   - resumen global de cobros

@@ -18,6 +18,13 @@ const {
 const router = express.Router();
 const serverConfig = getServerConfig();
 
+function isPlatformAdminConfigured() {
+  return (
+    !!String(serverConfig.platformAdminUsername || "").trim() &&
+    !!String(serverConfig.platformAdminPassword || "").trim()
+  );
+}
+
 const platformLoginRateLimiter = createRateLimiter({
   windowMs: serverConfig.loginRateLimitWindowMs,
   maxAttempts: serverConfig.loginRateLimitMaxAttempts,
@@ -80,6 +87,7 @@ function readBearerToken(req) {
 }
 
 function verifyPlatformToken(token) {
+  if (!isPlatformAdminConfigured()) return null;
   try {
     const payload = jwt.verify(token, serverConfig.jwtSecret);
     if (payload?.scope !== "platform_admin") return null;
@@ -110,10 +118,18 @@ function requirePlatformAccess(req, res, next) {
     return res.status(401).json({ error: "No autorizado para plataforma" });
   }
 
+  req.platformUser = { username: "onboarding_api_key" };
   return next();
 }
 
 function requirePlatformToken(req, res, next) {
+  if (!isPlatformAdminConfigured()) {
+    return res.status(503).json({
+      error:
+        "Panel de plataforma deshabilitado. Configura PLATFORM_ADMIN_USERNAME y PLATFORM_ADMIN_PASSWORD.",
+    });
+  }
+
   const tokenPayload = verifyPlatformToken(readBearerToken(req));
   if (!tokenPayload) {
     return res.status(401).json({ error: "Token de plataforma inválido o vencido" });
@@ -125,6 +141,13 @@ function requirePlatformToken(req, res, next) {
 
 router.post("/auth/login", platformLoginRateLimiter, platformLoginAttemptGuard.middleware, async (req, res) => {
   try {
+    if (!isPlatformAdminConfigured()) {
+      return res.status(503).json({
+        error:
+          "Panel de plataforma deshabilitado. Configura PLATFORM_ADMIN_USERNAME y PLATFORM_ADMIN_PASSWORD.",
+      });
+    }
+
     const username = String(req.body?.username || "").trim();
     const password = String(req.body?.password || "");
 
@@ -363,7 +386,7 @@ router.post("/tenants/onboard", requirePlatformAccess, async (req, res) => {
   }
 });
 
-router.get("/tenants", requirePlatformAccess, async (req, res) => {
+router.get("/tenants", requirePlatformToken, async (req, res) => {
   try {
     const [tenants] = await pool.query(
       `SELECT id, slug, name, plan, status, timezone,
@@ -430,7 +453,7 @@ router.get("/tenants", requirePlatformAccess, async (req, res) => {
   }
 });
 
-router.get("/billing/overview", requirePlatformAccess, async (req, res) => {
+router.get("/billing/overview", requirePlatformToken, async (req, res) => {
   try {
     const monthQuery = String(req.query?.month || "").trim();
     if (monthQuery && !isValidBillingMonth(monthQuery)) {
@@ -545,7 +568,7 @@ function parseMySqlDateTime(value) {
   return d;
 }
 
-router.get("/billing/metrics", requirePlatformAccess, async (req, res) => {
+router.get("/billing/metrics", requirePlatformToken, async (req, res) => {
   try {
     const requestedMonth = String(req.query?.month || "").trim();
     if (requestedMonth && !isValidBillingMonth(requestedMonth)) {
@@ -732,7 +755,7 @@ router.get("/billing/metrics", requirePlatformAccess, async (req, res) => {
   }
 });
 
-router.get("/tenants/:tenantId/billing", requirePlatformAccess, async (req, res) => {
+router.get("/tenants/:tenantId/billing", requirePlatformToken, async (req, res) => {
   try {
     const tenantId = Number(req.params.tenantId);
     if (!Number.isInteger(tenantId) || tenantId <= 0) {
@@ -795,7 +818,7 @@ router.get("/tenants/:tenantId/billing", requirePlatformAccess, async (req, res)
   }
 });
 
-router.post("/tenants/:tenantId/payments", requirePlatformAccess, async (req, res) => {
+router.post("/tenants/:tenantId/payments", requirePlatformToken, async (req, res) => {
   try {
     const tenantId = Number(req.params.tenantId);
     if (!Number.isInteger(tenantId) || tenantId <= 0) {
@@ -880,7 +903,7 @@ router.post("/tenants/:tenantId/payments", requirePlatformAccess, async (req, re
 
 router.delete(
   "/tenants/:tenantId/payments/:billingMonth",
-  requirePlatformAccess,
+  requirePlatformToken,
   async (req, res) => {
     try {
       const tenantId = Number(req.params.tenantId);
@@ -921,7 +944,7 @@ router.delete(
   }
 );
 
-router.patch("/tenants/:tenantId/status", requirePlatformAccess, async (req, res) => {
+router.patch("/tenants/:tenantId/status", requirePlatformToken, async (req, res) => {
   try {
     const tenantId = Number(req.params.tenantId);
     if (!Number.isInteger(tenantId) || tenantId <= 0) {
@@ -960,7 +983,7 @@ router.patch("/tenants/:tenantId/status", requirePlatformAccess, async (req, res
   }
 });
 
-router.patch("/tenants/:tenantId/trial", requirePlatformAccess, async (req, res) => {
+router.patch("/tenants/:tenantId/trial", requirePlatformToken, async (req, res) => {
   try {
     const tenantId = Number(req.params.tenantId);
     if (!Number.isInteger(tenantId) || tenantId <= 0) {
@@ -1031,7 +1054,7 @@ router.patch("/tenants/:tenantId/trial", requirePlatformAccess, async (req, res)
   }
 });
 
-router.patch("/tenants/:tenantId/multi-branch", requirePlatformAccess, async (req, res) => {
+router.patch("/tenants/:tenantId/multi-branch", requirePlatformToken, async (req, res) => {
   try {
     const tenantId = Number(req.params.tenantId);
     if (!Number.isInteger(tenantId) || tenantId <= 0) {
@@ -1065,7 +1088,7 @@ router.patch("/tenants/:tenantId/multi-branch", requirePlatformAccess, async (re
   }
 });
 
-router.delete("/tenants/:tenantId/permanent", requirePlatformAccess, async (req, res) => {
+router.delete("/tenants/:tenantId/permanent", requirePlatformToken, async (req, res) => {
   try {
     const tenantId = Number(req.params.tenantId);
     if (!Number.isInteger(tenantId) || tenantId <= 0) {
@@ -1138,7 +1161,7 @@ router.delete("/tenants/:tenantId/permanent", requirePlatformAccess, async (req,
   }
 });
 
-router.get("/tenants/:tenantId/overview", requirePlatformAccess, async (req, res) => {
+router.get("/tenants/:tenantId/overview", requirePlatformToken, async (req, res) => {
   try {
     const tenantId = Number(req.params.tenantId);
     if (!Number.isInteger(tenantId) || tenantId <= 0) {
@@ -1293,7 +1316,7 @@ router.get("/tenants/:tenantId/overview", requirePlatformAccess, async (req, res
   }
 });
 
-router.post("/tenants/:tenantId/users", requirePlatformAccess, async (req, res) => {
+router.post("/tenants/:tenantId/users", requirePlatformToken, async (req, res) => {
   try {
     const tenantId = Number(req.params.tenantId);
     if (!Number.isInteger(tenantId) || tenantId <= 0) {
@@ -1398,7 +1421,7 @@ router.post("/tenants/:tenantId/users", requirePlatformAccess, async (req, res) 
   }
 });
 
-router.patch("/tenants/:tenantId/users/:userId/status", requirePlatformAccess, async (req, res) => {
+router.patch("/tenants/:tenantId/users/:userId/status", requirePlatformToken, async (req, res) => {
   try {
     const tenantId = Number(req.params.tenantId);
     const userId = Number(req.params.userId);
@@ -1434,7 +1457,7 @@ router.patch("/tenants/:tenantId/users/:userId/status", requirePlatformAccess, a
   }
 });
 
-router.post("/tenants/:tenantId/users/:userId/reset-password", requirePlatformAccess, async (req, res) => {
+router.post("/tenants/:tenantId/users/:userId/reset-password", requirePlatformToken, async (req, res) => {
   try {
     const tenantId = Number(req.params.tenantId);
     const userId = Number(req.params.userId);
@@ -1445,11 +1468,7 @@ router.post("/tenants/:tenantId/users/:userId/reset-password", requirePlatformAc
       return res.status(400).json({ error: "userId inválido" });
     }
 
-    const incomingPassword = String(req.body?.newPassword || "");
-    const generatedPassword = `Nueva-${Math.random().toString(36).slice(2, 8)}#${Date.now()
-      .toString()
-      .slice(-3)}`;
-    const nextPassword = incomingPassword || generatedPassword;
+    const nextPassword = String(req.body?.newPassword || "").trim();
     if (nextPassword.length < 8) {
       return res.status(400).json({ error: "newPassword debe tener al menos 8 caracteres" });
     }
@@ -1468,15 +1487,13 @@ router.post("/tenants/:tenantId/users/:userId/reset-password", requirePlatformAc
       action: "tenant.user.password.reset",
       tenantId,
       targetUserId: userId,
-      details: { customPassword: !!incomingPassword },
+      details: { customPassword: true },
     });
 
     return res.json({
       ok: true,
       tenantId,
       userId,
-      generated: !incomingPassword,
-      newPassword: nextPassword,
     });
   } catch (e) {
     console.error(e);
@@ -1484,7 +1501,7 @@ router.post("/tenants/:tenantId/users/:userId/reset-password", requirePlatformAc
   }
 });
 
-router.delete("/tenants/:tenantId/users/:userId", requirePlatformAccess, async (req, res) => {
+router.delete("/tenants/:tenantId/users/:userId", requirePlatformToken, async (req, res) => {
   try {
     const tenantId = Number(req.params.tenantId);
     const userId = Number(req.params.userId);
@@ -1537,7 +1554,7 @@ router.delete("/tenants/:tenantId/users/:userId", requirePlatformAccess, async (
   }
 });
 
-router.get("/audit", requirePlatformAccess, async (req, res) => {
+router.get("/audit", requirePlatformToken, async (req, res) => {
   try {
     const limit = Math.min(Math.max(Number(req.query?.limit) || 100, 1), 500);
     const [rows] = await pool.query(
