@@ -1285,160 +1285,166 @@ export default function PlatformDashboardPage() {
                 </div>
               </div>
 
-              <div className="mt-4 flex flex-col gap-2 md:flex-row md:items-center">
-                <select
-                  value={methodByTenant[tenant.id] || "transferencia"}
-                  onChange={(e) =>
-                    setMethodByTenant((prev) => ({ ...prev, [tenant.id]: e.target.value }))
-                  }
-                  className="rounded-xl bg-zinc-950 px-3 py-2 text-sm ring-1 ring-white/10"
-                >
-                  <option value="transferencia">Transferencia</option>
-                  <option value="mercado_pago">Mercado Pago</option>
-                  <option value="efectivo">Efectivo</option>
-                </select>
+              <div className="mt-4 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={methodByTenant[tenant.id] || "transferencia"}
+                    onChange={(e) =>
+                      setMethodByTenant((prev) => ({ ...prev, [tenant.id]: e.target.value }))
+                    }
+                    className="rounded-xl bg-zinc-950 px-3 py-2 text-sm ring-1 ring-white/10"
+                  >
+                    <option value="transferencia">Transferencia</option>
+                    <option value="mercado_pago">Mercado Pago</option>
+                    <option value="efectivo">Efectivo</option>
+                  </select>
 
-                <button
-                  onClick={() => registerPayment(tenant)}
-                  disabled={payingId === tenant.id}
-                  className="rounded-xl bg-amber-400 px-4 py-2 text-sm font-semibold text-zinc-950 disabled:opacity-60"
-                >
-                  {payingId === tenant.id ? "Registrando..." : "Registrar pago"}
-                </button>
-
-                {tenant.currentMonthPaid ? (
                   <button
-                    onClick={() => removePayment(tenant)}
-                    disabled={removingPaymentId === tenant.id}
+                    onClick={() => registerPayment(tenant)}
+                    disabled={payingId === tenant.id}
+                    className="rounded-xl bg-amber-400 px-4 py-2 text-sm font-semibold text-zinc-950 disabled:opacity-60"
+                  >
+                    {payingId === tenant.id ? "Registrando..." : "Registrar pago"}
+                  </button>
+
+                  {tenant.currentMonthPaid ? (
+                    <button
+                      onClick={() => removePayment(tenant)}
+                      disabled={removingPaymentId === tenant.id}
+                      className="rounded-xl bg-zinc-800 px-4 py-2 text-sm font-semibold text-zinc-100 disabled:opacity-60"
+                    >
+                      {removingPaymentId === tenant.id ? "Eliminando..." : "Quitar pago"}
+                    </button>
+                  ) : null}
+
+                  <button
+                    onClick={() => toggleMultiBranch(tenant)}
+                    disabled={togglingMultiBranchId === tenant.id}
                     className="rounded-xl bg-zinc-800 px-4 py-2 text-sm font-semibold text-zinc-100 disabled:opacity-60"
                   >
-                    {removingPaymentId === tenant.id ? "Eliminando..." : "Quitar pago"}
+                    {togglingMultiBranchId === tenant.id
+                      ? "Guardando..."
+                      : tenant.multiBranchEnabled
+                      ? "Deshabilitar multi-sucursal"
+                      : "Habilitar multi-sucursal"}
                   </button>
-                ) : null}
+                </div>
 
-                <button
-                  onClick={() => toggleMultiBranch(tenant)}
-                  disabled={togglingMultiBranchId === tenant.id}
-                  className="rounded-xl bg-zinc-800 px-4 py-2 text-sm font-semibold text-zinc-100 disabled:opacity-60"
-                >
-                  {togglingMultiBranchId === tenant.id
-                    ? "Guardando..."
-                    : tenant.multiBranchEnabled
-                    ? "Deshabilitar multi-sucursal"
-                    : "Habilitar multi-sucursal"}
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="inline-flex items-center gap-2 rounded-xl bg-zinc-950 px-3 py-2 text-xs text-zinc-200 ring-1 ring-white/10">
+                    <input
+                      type="checkbox"
+                      checked={bookingPaymentByTenant[tenant.id]?.required === true}
+                      onChange={(e) =>
+                        setBookingPaymentByTenant((prev) => ({
+                          ...prev,
+                          [tenant.id]: {
+                            ...(prev[tenant.id] || {}),
+                            required: e.target.checked,
+                          },
+                        }))
+                      }
+                    />
+                    Requerir pago previo en reservas
+                  </label>
 
-                <label className="inline-flex items-center gap-2 rounded-xl bg-zinc-950 px-3 py-2 text-xs text-zinc-200 ring-1 ring-white/10">
                   <input
-                    type="checkbox"
-                    checked={bookingPaymentByTenant[tenant.id]?.required === true}
+                    type="text"
+                    value={bookingPaymentByTenant[tenant.id]?.mpAccessToken || ""}
                     onChange={(e) =>
                       setBookingPaymentByTenant((prev) => ({
                         ...prev,
                         [tenant.id]: {
                           ...(prev[tenant.id] || {}),
-                          required: e.target.checked,
+                          mpAccessToken: e.target.value,
                         },
                       }))
                     }
+                    placeholder={
+                      tenant?.bookingPayment?.required
+                        ? "Dejar vacío para mantener token actual"
+                        : "MP Access Token (si habilitas pago previo)"
+                    }
+                    className="w-full min-w-0 flex-1 rounded-xl bg-zinc-950 px-3 py-2 text-xs ring-1 ring-white/10 md:min-w-[260px]"
                   />
-                  Requerir pago previo en reservas
-                </label>
 
-                <input
-                  type="text"
-                  value={bookingPaymentByTenant[tenant.id]?.mpAccessToken || ""}
-                  onChange={(e) =>
-                    setBookingPaymentByTenant((prev) => ({
-                      ...prev,
-                      [tenant.id]: {
-                        ...(prev[tenant.id] || {}),
-                        mpAccessToken: e.target.value,
-                      },
-                    }))
-                  }
-                  placeholder={
-                    tenant?.bookingPayment?.required
-                      ? "Dejar vacío para mantener token actual"
-                      : "MP Access Token (si habilitas pago previo)"
-                  }
-                  className="min-w-[260px] rounded-xl bg-zinc-950 px-3 py-2 text-xs ring-1 ring-white/10"
-                />
-
-                <button
-                  onClick={() => saveBookingPaymentSettings(tenant)}
-                  disabled={savingBookingPaymentId === tenant.id}
-                  className="rounded-xl bg-zinc-800 px-4 py-2 text-sm font-semibold text-zinc-100 disabled:opacity-60"
-                >
-                  {savingBookingPaymentId === tenant.id
-                    ? "Guardando..."
-                    : "Guardar pago previo"}
-                </button>
-
-                <button
-                  onClick={() => toggleTenantStatus(tenant)}
-                  disabled={togglingId === tenant.id}
-                  className="rounded-xl bg-zinc-800 px-4 py-2 text-sm font-semibold text-zinc-100 disabled:opacity-60"
-                >
-                  {togglingId === tenant.id
-                    ? "Guardando..."
-                    : tenant.status === "active"
-                    ? "Inactivar"
-                    : "Activar"}
-                </button>
-
-                <input
-                  type="number"
-                  min={1}
-                  max={30}
-                  value={trialDaysByTenant[tenant.id] ?? 30}
-                  onChange={(e) =>
-                    setTrialDaysByTenant((prev) => ({
-                      ...prev,
-                      [tenant.id]: e.target.value,
-                    }))
-                  }
-                  className="w-24 rounded-xl bg-zinc-950 px-3 py-2 text-sm ring-1 ring-white/10"
-                  title="Días de prueba (1 a 30)"
-                />
-
-                <button
-                  onClick={() => activateTrial(tenant)}
-                  disabled={activatingTrialId === tenant.id}
-                  className="rounded-xl bg-zinc-800 px-4 py-2 text-sm font-semibold text-zinc-100 disabled:opacity-60"
-                >
-                  {activatingTrialId === tenant.id
-                    ? "Activando..."
-                    : tenant?.trial?.enabled
-                    ? "Reiniciar prueba 30 días"
-                    : "Activar prueba 30 días"}
-                </button>
-
-                {tenant.status !== "active" ? (
                   <button
-                    onClick={() => deleteTenantPermanent(tenant)}
-                    disabled={deletingTenantId === tenant.id}
-                    className="rounded-xl bg-red-600/80 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                    onClick={() => saveBookingPaymentSettings(tenant)}
+                    disabled={savingBookingPaymentId === tenant.id}
+                    className="rounded-xl bg-zinc-800 px-4 py-2 text-sm font-semibold text-zinc-100 disabled:opacity-60"
                   >
-                    {deletingTenantId === tenant.id ? "Eliminando..." : "Eliminar definitivo"}
+                    {savingBookingPaymentId === tenant.id
+                      ? "Guardando..."
+                      : "Guardar pago previo"}
                   </button>
-                ) : null}
+                </div>
 
-                <button
-                  onClick={() => toggleOverview(tenant)}
-                  className="rounded-xl bg-zinc-800 px-4 py-2 text-sm font-semibold text-zinc-100"
-                >
-                  {openTenantId === tenant.id ? "Ocultar detalle" : "Ver detalle"}
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => toggleTenantStatus(tenant)}
+                    disabled={togglingId === tenant.id}
+                    className="rounded-xl bg-zinc-800 px-4 py-2 text-sm font-semibold text-zinc-100 disabled:opacity-60"
+                  >
+                    {togglingId === tenant.id
+                      ? "Guardando..."
+                      : tenant.status === "active"
+                      ? "Inactivar"
+                      : "Activar"}
+                  </button>
 
-                <a
-                  href={buildTenantPublicUrl(tenant.slug, firstBaseDomain)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded-xl bg-zinc-800 px-4 py-2 text-sm font-semibold text-zinc-100"
-                >
-                  Abrir sitio
-                </a>
+                  <input
+                    type="number"
+                    min={1}
+                    max={30}
+                    value={trialDaysByTenant[tenant.id] ?? 30}
+                    onChange={(e) =>
+                      setTrialDaysByTenant((prev) => ({
+                        ...prev,
+                        [tenant.id]: e.target.value,
+                      }))
+                    }
+                    className="w-24 rounded-xl bg-zinc-950 px-3 py-2 text-sm ring-1 ring-white/10"
+                    title="Días de prueba (1 a 30)"
+                  />
+
+                  <button
+                    onClick={() => activateTrial(tenant)}
+                    disabled={activatingTrialId === tenant.id}
+                    className="rounded-xl bg-zinc-800 px-4 py-2 text-sm font-semibold text-zinc-100 disabled:opacity-60"
+                  >
+                    {activatingTrialId === tenant.id
+                      ? "Activando..."
+                      : tenant?.trial?.enabled
+                      ? "Reiniciar prueba 30 días"
+                      : "Activar prueba 30 días"}
+                  </button>
+
+                  {tenant.status !== "active" ? (
+                    <button
+                      onClick={() => deleteTenantPermanent(tenant)}
+                      disabled={deletingTenantId === tenant.id}
+                      className="rounded-xl bg-red-600/80 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                    >
+                      {deletingTenantId === tenant.id ? "Eliminando..." : "Eliminar definitivo"}
+                    </button>
+                  ) : null}
+
+                  <button
+                    onClick={() => toggleOverview(tenant)}
+                    className="rounded-xl bg-zinc-800 px-4 py-2 text-sm font-semibold text-zinc-100"
+                  >
+                    {openTenantId === tenant.id ? "Ocultar detalle" : "Ver detalle"}
+                  </button>
+
+                  <a
+                    href={buildTenantPublicUrl(tenant.slug, firstBaseDomain)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-xl bg-zinc-800 px-4 py-2 text-sm font-semibold text-zinc-100"
+                  >
+                    Abrir sitio
+                  </a>
+                </div>
               </div>
 
               {openTenantId === tenant.id ? (
