@@ -80,7 +80,7 @@ export default function Navbar({
               </span>
             </button>
           </div>
-        </div>
+        </div> 
 
         {mobileOpen ? (
           <div className="mt-4 rounded-2xl border border-white/15 bg-[rgba(19,22,30,0.9)] p-3 lg:hidden">
@@ -114,3 +114,4 @@ export default function Navbar({
     </header>
   );
 }
+//Hola
