@@ -413,6 +413,7 @@ router.get("/tenants", requirePlatformToken, async (req, res) => {
     const paymentRows = [];
     for (const tenant of tenants) {
       const billing = getCurrentBillingContext(tenant.timezone);
+      const trialInWindow = isTenantTrialInWindow(tenant);
       const [[payment]] = await pool.query(
         `SELECT billing_month, amount_ars, payment_method, paid_at
          FROM tenant_billing_payments
@@ -443,7 +444,7 @@ router.get("/tenants", requirePlatformToken, async (req, res) => {
         },
         billingMonth: billing.billingMonth,
         currentMonthPaid: !!payment,
-        suspendedByPayment: billing.isPastDue && !payment,
+        suspendedByPayment: !trialInWindow && billing.isPastDue && !payment,
         currentPayment: payment || null,
       });
     }
@@ -487,6 +488,7 @@ router.get("/billing/overview", requirePlatformToken, async (req, res) => {
 
     for (const tenant of tenants) {
       const billingCtx = getCurrentBillingContext(tenant.timezone);
+      const trialInWindow = isTenantTrialInWindow(tenant);
       const billingMonth = monthQuery || billingCtx.billingMonth;
       const [[payment]] = await pool.query(
         `SELECT id, amount_ars, payment_method, paid_at
@@ -506,7 +508,7 @@ router.get("/billing/overview", requirePlatformToken, async (req, res) => {
       }
 
       const inCurrentMonth = billingMonth === billingCtx.billingMonth;
-      const suspendedByPayment = inCurrentMonth && billingCtx.isPastDue && !isPaid;
+      const suspendedByPayment = inCurrentMonth && !trialInWindow && billingCtx.isPastDue && !isPaid;
       if (suspendedByPayment) suspendedByPaymentCount += 1;
 
       rows.push({
@@ -585,6 +587,13 @@ function parseMySqlDateTime(value) {
   const d = new Date(raw.replace(" ", "T"));
   if (Number.isNaN(d.getTime())) return null;
   return d;
+}
+
+function isTenantTrialInWindow(tenant, now = new Date()) {
+  const trialEnabled = Number(tenant?.trial_active || 0) === 1;
+  if (!trialEnabled) return false;
+  const trialEndsAt = parseMySqlDateTime(tenant?.trial_ends_at);
+  return !trialEndsAt || trialEndsAt.getTime() >= now.getTime();
 }
 
 router.get("/billing/metrics", requirePlatformToken, async (req, res) => {
@@ -782,7 +791,7 @@ router.get("/tenants/:tenantId/billing", requirePlatformToken, async (req, res) 
     }
 
     const [[tenant]] = await pool.query(
-      `SELECT id, slug, name, status, timezone
+      `SELECT id, slug, name, status, timezone, trial_active, trial_ends_at
        FROM tenants
        WHERE id = :tenantId
        LIMIT 1`,
@@ -809,7 +818,7 @@ router.get("/tenants/:tenantId/billing", requirePlatformToken, async (req, res) 
       { tenantId }
     );
 
-    const suspendedByPayment = billing.isPastDue && !currentPayment;
+    const suspendedByPayment = !isTenantTrialInWindow(tenant) && billing.isPastDue && !currentPayment;
 
     return res.json({
       tenant: {
@@ -1370,6 +1379,7 @@ router.get("/tenants/:tenantId/overview", requirePlatformToken, async (req, res)
        LIMIT 1`,
       { tenantId, billingMonth: billingCtx.billingMonth }
     );
+    const trialInWindow = isTenantTrialInWindow(tenant);
 
     return res.json({
       tenant: {
@@ -1396,7 +1406,7 @@ router.get("/tenants/:tenantId/overview", requirePlatformToken, async (req, res)
         billingMonth: billingCtx.billingMonth,
         currentMonthPaid: !!payment,
         currentPayment: payment || null,
-        suspendedByPayment: billingCtx.isPastDue && !payment,
+        suspendedByPayment: !trialInWindow && billingCtx.isPastDue && !payment,
       },
       counts: {
         barbersTotal: Number(counts?.barbers_total || 0),

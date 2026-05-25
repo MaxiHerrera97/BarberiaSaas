@@ -37,6 +37,14 @@ function toDateParam(dateObj) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function formatArs(value) {
+  return new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency: "ARS",
+    maximumFractionDigits: 0,
+  }).format(Number(value || 0));
+}
+
 function parseDateParam(value) {
   const raw = String(value || "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return new Date();
@@ -84,6 +92,8 @@ export default function AdminPage({
   const [err, setErr] = useState("");
 
   const [savingId, setSavingId] = useState(null);
+  const [walkInServiceByBarber, setWalkInServiceByBarber] = useState({});
+  const [walkInSavingBarberId, setWalkInSavingBarberId] = useState(0);
   const activeBranches = useMemo(
     () => (Array.isArray(branches) ? branches.filter((b) => !!b.isActive) : []),
     [branches]
@@ -115,6 +125,13 @@ export default function AdminPage({
     services.forEach((s) => m.set(s.id, s));
     return m;
   }, [services]);
+  const billableServices = useMemo(
+    () =>
+      services.filter(
+        (s) => Number(s?.quoteOnly || 0) !== 1 && Number(s?.price || 0) > 0 && Number(s?.durationMin || 0) > 0
+      ),
+    [services]
+  );
 
   const billingView = useMemo(() => {
     const billing = billingInfo?.billing || {};
@@ -906,6 +923,66 @@ export default function AdminPage({
     setStatusOnServer(id, "in_progress");
   }
 
+  async function finalizeWalkInService(barberId) {
+    const selectedServiceId = Number(walkInServiceByBarber?.[barberId] || 0);
+    if (!Number.isInteger(selectedServiceId) || selectedServiceId <= 0) {
+      setErr("Seleccioná un servicio para registrar como finalizado.");
+      return;
+    }
+
+    setErr("");
+    setWalkInSavingBarberId(barberId);
+    try {
+      await apiFetch("/appointments/walk-in", {
+        method: "POST",
+        body: {
+          barberId,
+          serviceId: selectedServiceId,
+        },
+      });
+
+      setWalkInServiceByBarber((prev) => ({ ...prev, [barberId]: "" }));
+
+      await loadAppointments();
+
+      try {
+        const yyyy = date.getFullYear();
+        const mm = date.getMonth() + 1;
+        const branchQuery =
+          session?.role === "admin" && selectedBranchId && selectedBranchId !== "all"
+            ? `&branchId=${selectedBranchId}`
+            : "";
+        const refreshedCash = await apiFetch(
+          `/appointments/cash-summary?date=${toDateParam(date)}&year=${yyyy}&month=${mm}${branchQuery}`
+        );
+        setCashSummary(refreshedCash || null);
+      } catch {
+        // best effort
+      }
+
+      if (session?.role === "admin") {
+        try {
+          const yyyy = date.getFullYear();
+          const mm = date.getMonth() + 1;
+          const branchQuery =
+            selectedBranchId && selectedBranchId !== "all"
+              ? `&branchId=${selectedBranchId}`
+              : "";
+          const refreshedCommission = await apiFetch(
+            `/appointments/commissions-summary?year=${yyyy}&month=${mm}${branchQuery}`
+          );
+          setCommissionSummary(refreshedCommission || null);
+        } catch {
+          // best effort
+        }
+      }
+    } catch (e) {
+      setErr(e.message || "No se pudo registrar el servicio sin turno.");
+    } finally {
+      setWalkInSavingBarberId(0);
+    }
+  }
+
   function getInProgress(barberId) {
     return (apptsByBarber.get(barberId) || []).find(
       (a) => a.status === "in_progress"
@@ -1544,6 +1621,65 @@ export default function AdminPage({
                 </div>
 
                 <div className="p-4 space-y-3 max-h-[70vh] overflow-auto">
+                  {session?.role === "barber" ? (
+                    <div className="rounded-2xl bg-zinc-950/40 p-3 ring-1 ring-white/10">
+                      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-cyan-300">
+                        Servicio sin turno
+                      </div>
+
+                      {billableServices.length ? (
+                        <>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            {billableServices.map((svc) => {
+                              const selected = Number(walkInServiceByBarber?.[b.id] || 0) === Number(svc.id);
+                              return (
+                                <button
+                                  key={`walkin-service-${b.id}-${svc.id}`}
+                                  type="button"
+                                  onClick={() =>
+                                    setWalkInServiceByBarber((prev) => ({
+                                      ...prev,
+                                      [b.id]: String(svc.id),
+                                    }))
+                                  }
+                                  className={[
+                                    "rounded-xl px-3 py-2 text-left ring-1 transition",
+                                    selected
+                                      ? "bg-cyan-400/20 text-cyan-100 ring-cyan-300/50"
+                                      : "bg-zinc-950/50 text-zinc-200 ring-white/10 hover:ring-white/20",
+                                  ].join(" ")}
+                                >
+                                  <div className="text-sm font-semibold">{svc.name}</div>
+                                  <div className="text-xs text-zinc-400">
+                                    {svc.durationMin} min · {formatArs(svc.price)}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                            <div className="text-xs text-zinc-400">
+                              Seleccioná el servicio realizado y registralo como finalizado.
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => finalizeWalkInService(b.id)}
+                              disabled={walkInSavingBarberId === b.id}
+                              className="rounded-xl bg-emerald-400 px-3 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-emerald-300 disabled:opacity-60"
+                            >
+                              {walkInSavingBarberId === b.id ? "Registrando..." : "Finalizar servicio"}
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-xs text-zinc-400">
+                          No hay servicios cobrables activos para registrar.
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+
                   {slots.map((s) => {
                     const appt = list.find((a) => {
                       const t = new Date(a.startAt).getTime();

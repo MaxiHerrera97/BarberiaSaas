@@ -8,7 +8,7 @@ const { v4: uuidv4 } = require("uuid");
 
 const router = express.Router();
 const serverConfig = getServerConfig();
-const APPOINTMENT_PAYMENT_HOLD_MINUTES = 20;
+const APPOINTMENT_PAYMENT_HOLD_SECONDS = 30;
 
 function readRequestHost(req) {
   const forwardedHost = String(req.headers["x-forwarded-host"] || "")
@@ -868,13 +868,13 @@ router.post("/confirm", async (req, res) => {
 
         await conn.query(
           `UPDATE appointment_holds
-           SET expires_at = DATE_ADD(NOW(), INTERVAL :minutes MINUTE)
+           SET expires_at = DATE_ADD(NOW(), INTERVAL :seconds SECOND)
            WHERE id = :holdId
              AND tenant_id = :tenantId`,
           {
             holdId: h.id,
             tenantId: req.tenant.id,
-            minutes: APPOINTMENT_PAYMENT_HOLD_MINUTES,
+            seconds: APPOINTMENT_PAYMENT_HOLD_SECONDS,
           }
         );
 
@@ -1027,6 +1027,127 @@ router.patch("/:id/status", auth, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Error actualizando estado" });
+  }
+});
+
+/**
+ * POST /appointments/walk-in
+ * PROTEGIDO
+ * Registra un servicio realizado sin turno previo y lo deja finalizado.
+ * Impacta automáticamente en caja y comisiones porque se guarda en appointments con status='done'.
+ */
+router.post("/walk-in", auth, async (req, res) => {
+  try {
+    const role = String(req.user?.role || "").trim().toLowerCase();
+    if (!["admin", "barber"].includes(role)) {
+      return res.status(403).json({ error: "No autorizado" });
+    }
+
+    const serviceId = Number(req.body?.serviceId);
+    if (!Number.isInteger(serviceId) || serviceId <= 0) {
+      return res.status(400).json({ error: "serviceId inválido" });
+    }
+
+    let barberId = 0;
+    if (role === "barber") {
+      barberId = Number(req.user?.barberId || 0);
+      if (!Number.isInteger(barberId) || barberId <= 0) {
+        return res.status(403).json({ error: "Barbero no asociado" });
+      }
+    } else {
+      barberId = Number(req.body?.barberId);
+      if (!Number.isInteger(barberId) || barberId <= 0) {
+        return res.status(400).json({ error: "barberId inválido" });
+      }
+    }
+
+    const customerName = String(req.body?.customerName || "").trim().slice(0, 120) || "Cliente sin turno";
+    const customerPhone = String(req.body?.customerPhone || "").replace(/\D/g, "").slice(0, 20);
+
+    const [[service]] = await pool.query(
+      `SELECT id, name, price_ars, duration_min, quote_only
+       FROM services
+       WHERE id = :serviceId
+         AND tenant_id = :tenantId
+         AND is_active = 1
+       LIMIT 1`,
+      { serviceId, tenantId: req.tenant.id }
+    );
+    if (!service) {
+      return res.status(400).json({ error: "Servicio inválido para este tenant" });
+    }
+    if (Number(service.quote_only || 0) === 1) {
+      return res.status(400).json({
+        error: "Este servicio es solo cotización y no puede registrarse como cobro directo.",
+      });
+    }
+
+    const servicePriceArs = Number(service.price_ars || 0);
+    const serviceDurationMin = Number(service.duration_min || 0);
+    if (!Number.isInteger(servicePriceArs) || servicePriceArs <= 0) {
+      return res.status(400).json({ error: "El servicio no tiene precio válido." });
+    }
+    if (!Number.isInteger(serviceDurationMin) || serviceDurationMin <= 0) {
+      return res.status(400).json({ error: "El servicio no tiene duración válida." });
+    }
+
+    const [[barber]] = await pool.query(
+      `SELECT id, branch_id, commission_pct, is_active
+       FROM barbers
+       WHERE id = :barberId
+         AND tenant_id = :tenantId
+       LIMIT 1`,
+      { barberId, tenantId: req.tenant.id }
+    );
+    if (!barber) {
+      return res.status(400).json({ error: "Barbero inválido para este tenant" });
+    }
+    if (Number(barber.is_active || 0) !== 1) {
+      return res.status(400).json({ error: "El barbero está inactivo." });
+    }
+
+    const commissionPct = Number(barber.commission_pct || 0);
+    const commissionArs = Math.round((servicePriceArs * commissionPct) / 100);
+
+    const [ins] = await pool.query(
+      `INSERT INTO appointments
+       (tenant_id, branch_id, barber_id, service_id,
+        service_name_snapshot, service_price_ars_snapshot, service_duration_min_snapshot,
+        barber_commission_pct_snapshot, barber_commission_ars_snapshot,
+        customer_name, customer_phone, start_at, end_at, status, notes)
+       VALUES
+       (:tenantId, :branchId, :barberId, :serviceId,
+        :serviceNameSnapshot, :servicePriceSnapshot, :serviceDurationSnapshot,
+        :barberCommissionPctSnapshot, :barberCommissionArsSnapshot,
+        :customerName, :customerPhone, NOW(), DATE_ADD(NOW(), INTERVAL :durationMin MINUTE), 'done', :notes)`,
+      {
+        tenantId: req.tenant.id,
+        branchId: Number(barber.branch_id || 0) || null,
+        barberId: Number(barber.id),
+        serviceId: Number(service.id),
+        serviceNameSnapshot: String(service.name || "").trim().slice(0, 120) || null,
+        servicePriceSnapshot: servicePriceArs,
+        serviceDurationSnapshot: serviceDurationMin,
+        barberCommissionPctSnapshot: commissionPct,
+        barberCommissionArsSnapshot: commissionArs,
+        customerName,
+        customerPhone,
+        durationMin: serviceDurationMin,
+        notes: "Servicio sin turno (registrado manualmente)",
+      }
+    );
+
+    return res.status(201).json({
+      ok: true,
+      appointmentId: ins.insertId,
+      barberId: Number(barber.id),
+      serviceId: Number(service.id),
+      amountArs: servicePriceArs,
+      commissionArs,
+    });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: "Error registrando servicio sin turno" });
   }
 });
 
