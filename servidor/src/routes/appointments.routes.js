@@ -10,6 +10,38 @@ const router = express.Router();
 const serverConfig = getServerConfig();
 const APPOINTMENT_PAYMENT_HOLD_SECONDS = 30;
 
+function normalizeServicePrepaymentConfig(serviceRow) {
+  const modeRaw = String(serviceRow?.booking_prepayment_mode || "none")
+    .trim()
+    .toLowerCase();
+  const mode = ["none", "total", "percent", "fixed"].includes(modeRaw) ? modeRaw : "none";
+  const percent = Number(serviceRow?.booking_prepayment_percent || 0);
+  const fixedArs = Number(serviceRow?.booking_prepayment_fixed_ars || 0);
+  return {
+    mode,
+    percent: Number.isInteger(percent) ? percent : 0,
+    fixedArs: Number.isInteger(fixedArs) ? fixedArs : 0,
+  };
+}
+
+function calculateServicePrepaymentAmount(servicePriceArs, prepaymentCfg) {
+  const total = Math.max(0, Number(servicePriceArs || 0));
+  if (!total) return 0;
+  const mode = String(prepaymentCfg?.mode || "none").toLowerCase();
+  if (mode === "total") return total;
+  if (mode === "percent") {
+    const pct = Number(prepaymentCfg?.percent || 0);
+    if (!Number.isFinite(pct) || pct <= 0) return 0;
+    return Math.max(1, Math.min(total, Math.round((total * pct) / 100)));
+  }
+  if (mode === "fixed") {
+    const fixed = Number(prepaymentCfg?.fixedArs || 0);
+    if (!Number.isFinite(fixed) || fixed <= 0) return 0;
+    return Math.min(total, Math.round(fixed));
+  }
+  return 0;
+}
+
 function readRequestHost(req) {
   const forwardedHost = String(req.headers["x-forwarded-host"] || "")
     .split(",")[0]
@@ -697,7 +729,8 @@ router.post("/confirm", async (req, res) => {
       const h = holds[0];
 
       const [[service]] = await conn.query(
-        `SELECT id, name, price_ars, duration_min
+        `SELECT id, name, price_ars, duration_min,
+                booking_prepayment_mode, booking_prepayment_percent, booking_prepayment_fixed_ars
          FROM services
          WHERE id = :serviceId
            AND tenant_id = :tenantId
@@ -780,7 +813,12 @@ router.post("/confirm", async (req, res) => {
       const bookingPaymentRequired = Number(req.tenant?.booking_payment_required || 0) === 1;
       const bookingMpAccessToken = String(req.tenant?.booking_mp_access_token || "").trim();
       const servicePriceArs = Number(service.price_ars || 0);
-      if (bookingPaymentRequired) {
+      const prepaymentCfg = normalizeServicePrepaymentConfig(service);
+      const shouldChargeOnline = bookingPaymentRequired && prepaymentCfg.mode !== "none";
+      const amountToChargeArs = shouldChargeOnline
+        ? calculateServicePrepaymentAmount(servicePriceArs, prepaymentCfg)
+        : 0;
+      if (shouldChargeOnline) {
         if (!bookingMpAccessToken) {
           await conn.rollback();
           return res.status(503).json({
@@ -788,7 +826,7 @@ router.post("/confirm", async (req, res) => {
               "La barbería tiene pago previo habilitado pero no configuró Mercado Pago. Contacta al administrador.",
           });
         }
-        if (!servicePriceArs || servicePriceArs <= 0) {
+        if (!servicePriceArs || servicePriceArs <= 0 || !amountToChargeArs) {
           await conn.rollback();
           return res.status(400).json({
             error: "El servicio seleccionado no tiene precio válido para cobrar online.",
@@ -817,7 +855,7 @@ router.post("/confirm", async (req, res) => {
                 req.tenant.name || "Barbería"
               }`,
               quantity: 1,
-              unit_price: servicePriceArs,
+              unit_price: amountToChargeArs,
               currency_id: "ARS",
             },
           ],
@@ -880,15 +918,24 @@ router.post("/confirm", async (req, res) => {
 
         await conn.query(
           `INSERT INTO appointment_payment_intents
-           (tenant_id, hold_token, external_reference, mp_preference_id,
-            amount_ars, customer_name, customer_phone, status, checkout_url)
+            (tenant_id, hold_token, external_reference, mp_preference_id,
+             amount_ars, service_total_ars, remaining_ars,
+             prepayment_mode, prepayment_percent_snapshot, prepayment_fixed_ars_snapshot,
+             customer_name, customer_phone, status, checkout_url)
            VALUES
            (:tenantId, :holdToken, :externalReference, :preferenceId,
-            :amountArs, :customerName, :customerPhone, 'pending', :checkoutUrl)
+             :amountArs, :serviceTotalArs, :remainingArs,
+             :prepaymentMode, :prepaymentPercentSnapshot, :prepaymentFixedArsSnapshot,
+             :customerName, :customerPhone, 'pending', :checkoutUrl)
            ON DUPLICATE KEY UPDATE
             external_reference = VALUES(external_reference),
             mp_preference_id = VALUES(mp_preference_id),
             amount_ars = VALUES(amount_ars),
+            service_total_ars = VALUES(service_total_ars),
+            remaining_ars = VALUES(remaining_ars),
+            prepayment_mode = VALUES(prepayment_mode),
+            prepayment_percent_snapshot = VALUES(prepayment_percent_snapshot),
+            prepayment_fixed_ars_snapshot = VALUES(prepayment_fixed_ars_snapshot),
             customer_name = VALUES(customer_name),
             customer_phone = VALUES(customer_phone),
             status = 'pending',
@@ -900,7 +947,12 @@ router.post("/confirm", async (req, res) => {
             holdToken,
             externalReference,
             preferenceId: String(mpResp.data.id).slice(0, 80),
-            amountArs: servicePriceArs,
+            amountArs: amountToChargeArs,
+            serviceTotalArs: servicePriceArs,
+            remainingArs: Math.max(0, servicePriceArs - amountToChargeArs),
+            prepaymentMode: prepaymentCfg.mode,
+            prepaymentPercentSnapshot: prepaymentCfg.percent || null,
+            prepaymentFixedArsSnapshot: prepaymentCfg.fixedArs || null,
             customerName: customerNameNormalized,
             customerPhone: phoneDigits,
             checkoutUrl: String(checkoutUrl).slice(0, 500),
@@ -913,6 +965,9 @@ router.post("/confirm", async (req, res) => {
           provider: "mercado_pago",
           checkoutUrl,
           holdToken,
+          paymentAmountArs: amountToChargeArs,
+          serviceTotalArs: servicePriceArs,
+          remainingAmountArs: Math.max(0, servicePriceArs - amountToChargeArs),
         });
       }
 
@@ -921,14 +976,16 @@ router.post("/confirm", async (req, res) => {
         [ins] = await conn.query(
           `INSERT INTO appointments
            (tenant_id, branch_id, barber_id, service_id,
-            service_name_snapshot, service_price_ars_snapshot, service_duration_min_snapshot,
-            barber_commission_pct_snapshot, barber_commission_ars_snapshot,
-            customer_name, customer_phone, start_at, end_at, status)
+             service_name_snapshot, service_price_ars_snapshot, service_duration_min_snapshot,
+             barber_commission_pct_snapshot, barber_commission_ars_snapshot,
+             booking_paid_ars_snapshot, booking_due_ars_snapshot,
+             customer_name, customer_phone, start_at, end_at, status)
            VALUES
-           (:tenantId, :branchId, :barberId, :serviceId,
-            :serviceNameSnapshot, :servicePriceSnapshot, :serviceDurationSnapshot,
-            :barberCommissionPctSnapshot, :barberCommissionArsSnapshot,
-            :customerName, :customerPhone, :startAt, :endAt, 'pending')`,
+            (:tenantId, :branchId, :barberId, :serviceId,
+              :serviceNameSnapshot, :servicePriceSnapshot, :serviceDurationSnapshot,
+              :barberCommissionPctSnapshot, :barberCommissionArsSnapshot,
+              :bookingPaidArsSnapshot, :bookingDueArsSnapshot,
+             :customerName, :customerPhone, :startAt, :endAt, 'pending')`,
           {
             tenantId: req.tenant.id,
             branchId: h.branch_id,
@@ -939,6 +996,8 @@ router.post("/confirm", async (req, res) => {
             serviceDurationSnapshot: Number(service.duration_min || 0) || null,
             barberCommissionPctSnapshot: commissionPct,
             barberCommissionArsSnapshot: commissionArs,
+            bookingPaidArsSnapshot: 0,
+            bookingDueArsSnapshot: servicePriceArs || 0,
             customerName: customerNameNormalized,
             customerPhone: phoneDigits,
             startAt: h.start_at,

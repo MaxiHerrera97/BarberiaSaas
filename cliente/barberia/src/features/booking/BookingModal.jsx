@@ -41,6 +41,39 @@ function isValidArPhone(digits) {
   return /^\d{10}$/.test(digits);
 }
 
+function normalizeServicePrepayment(service) {
+  const modeRaw = String(service?.bookingPrepaymentMode || "none").trim().toLowerCase();
+  const mode = ["none", "total", "percent", "fixed"].includes(modeRaw) ? modeRaw : "none";
+  const total = Number(service?.price || 0);
+  if (!Number.isFinite(total) || total <= 0) {
+    return { mode: "none", payNowArs: 0, totalArs: 0, remainingArs: 0 };
+  }
+  let payNowArs = 0;
+  if (mode === "total") {
+    payNowArs = Math.round(total);
+  } else if (mode === "percent") {
+    const pct = Number(service?.bookingPrepaymentPercent || 0);
+    if (Number.isFinite(pct) && pct > 0) {
+      payNowArs = Math.max(1, Math.min(Math.round(total), Math.round((total * pct) / 100)));
+    }
+  } else if (mode === "fixed") {
+    const fixed = Number(service?.bookingPrepaymentFixedArs || 0);
+    if (Number.isFinite(fixed) && fixed > 0) {
+      payNowArs = Math.min(Math.round(total), Math.round(fixed));
+    }
+  }
+  const remainingArs = Math.max(0, Math.round(total) - payNowArs);
+  return { mode, payNowArs, totalArs: Math.round(total), remainingArs };
+}
+
+function formatArs(amount) {
+  return new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency: "ARS",
+    maximumFractionDigits: 0,
+  }).format(Number(amount || 0));
+}
+
 const CALENDAR_CACHE_TTL_MS = 60 * 1000;
 const AVAILABILITY_CACHE_TTL_MS = 30 * 1000;
 
@@ -95,6 +128,8 @@ export default function BookingModal({
 
   const barber = barbers.find((b) => b.id === barberId);
   const service = services.find((s) => s.id === serviceId);
+  const prepayment = useMemo(() => normalizeServicePrepayment(service), [service]);
+  const requiresOnlinePayment = bookingPaymentRequired && prepayment.payNowArs > 0;
   const filteredBarbers = useMemo(() => {
     if (!showBranchStep) return barbers;
     if (!branchId) return [];
@@ -457,7 +492,7 @@ export default function BookingModal({
         >
           {loadingConfirm
             ? "Confirmando..."
-            : bookingPaymentRequired
+            : requiresOnlinePayment
             ? "Ir a pagar y confirmar"
             : "Confirmar turno"}
         </Button>
@@ -570,6 +605,20 @@ export default function BookingModal({
                   <div className="text-xs opacity-80">
                     {s.durationMin} min · ${s.price}
                   </div>
+                  {bookingPaymentRequired ? (
+                    <div className="mt-1 text-[11px] opacity-90">
+                      {(() => {
+                        const cfg = normalizeServicePrepayment(s);
+                        if (cfg.payNowArs <= 0) return "Reserva sin pago online";
+                        if (cfg.remainingArs > 0) {
+                          return `Seña online ${formatArs(cfg.payNowArs)} · Saldo en local ${formatArs(
+                            cfg.remainingArs
+                          )}`;
+                        }
+                        return `Pago total online ${formatArs(cfg.payNowArs)}`;
+                      })()}
+                    </div>
+                  ) : null}
                 </button>
               )
             ))}
@@ -742,11 +791,20 @@ export default function BookingModal({
                 </p>
               )}
 
-              {bookingPaymentRequired && slot && holdToken && (
-                <p className="text-xs text-amber-300">
-                  Al confirmar, serás redirigido a Mercado Pago para abonar el total del servicio.
-                </p>
-              )}
+              {bookingPaymentRequired && slot && holdToken ? (
+                requiresOnlinePayment ? (
+                  <p className="text-xs text-amber-300">
+                    Al confirmar, pagarás {formatArs(prepayment.payNowArs)} en Mercado Pago.
+                    {prepayment.remainingArs > 0
+                      ? ` Saldo pendiente en local: ${formatArs(prepayment.remainingArs)}.`
+                      : " Quedará abonado en su totalidad."}
+                  </p>
+                ) : (
+                  <p className="text-xs text-zinc-300">
+                    Este servicio no requiere pago online para confirmar la reserva.
+                  </p>
+                )
+              ) : null}
 
               {slot && holdToken && (
                 <p className="text-xs text-zinc-400">

@@ -18,9 +18,9 @@ body {
   font-family: "Manrope", ui-sans-serif, system-ui, sans-serif;
   color: var(--text-main);
   background:
-    radial-gradient(1200px 700px at 15% -10%, rgba(217, 161, 61, 0.14), transparent 60%),
-    radial-gradient(900px 700px at 95% 10%, rgba(98, 119, 153, 0.16), transparent 58%),
-    linear-gradient(180deg, #07080b 0%, #0d1016 42%, #0b0e13 100%);
+    radial-gradient(1200px 700px at 15% -10%, color-mix(in srgb, var(--brand) 20%, transparent), transparent 60%),
+    radial-gradient(900px 700px at 95% 10%, color-mix(in srgb, var(--brand-deep) 24%, transparent), transparent 58%),
+    linear-gradient(180deg, var(--bg-main) 0%, var(--bg-elevated) 42%, var(--bg-soft) 100%);
   min-height: 100vh;
 }
 
@@ -37,8 +37,8 @@ h3,
 }
 
 ::selection {
-  background: rgba(217, 161, 61, 0.35);
-  color: #101216;
+  background: color-mix(in srgb, var(--brand) 45%, transparent);
+  color: var(--bg-main);
 }
 
 .surface-card {
@@ -48,7 +48,7 @@ h3,
 }
 
 .lux-divider {
-  border-color: rgba(217, 161, 61, 0.24);
+  border-color: color-mix(in srgb, var(--brand) 24%, transparent);
 }
 
 @keyframes fadeRise {

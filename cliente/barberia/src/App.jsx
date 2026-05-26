@@ -22,6 +22,35 @@ import DisplayPage from "./pages/display/DisplayPage";
 import { heroImages } from "./lib/data";
 import { apiFetch, getApiUrl } from "./lib/api";
 
+const DEFAULT_SITE_THEME = {
+  themeBgMain: "#090A0D",
+  themeBgElevated: "#12141A",
+  themeBgSoft: "#171A21",
+  themeTextMain: "#F6F5F1",
+  themeTextMuted: "#B7B8BE",
+  themeBrand: "#D9A13D",
+  themeBrandSoft: "#F2C879",
+  themeBrandDeep: "#9D6F1D",
+};
+
+function normalizeThemeColor(value, fallback) {
+  const raw = String(value || "").trim().toUpperCase();
+  return /^#[0-9A-F]{6}$/.test(raw) ? raw : fallback;
+}
+
+function buildThemeFromSettings(settings) {
+  return {
+    themeBgMain: normalizeThemeColor(settings?.themeBgMain, DEFAULT_SITE_THEME.themeBgMain),
+    themeBgElevated: normalizeThemeColor(settings?.themeBgElevated, DEFAULT_SITE_THEME.themeBgElevated),
+    themeBgSoft: normalizeThemeColor(settings?.themeBgSoft, DEFAULT_SITE_THEME.themeBgSoft),
+    themeTextMain: normalizeThemeColor(settings?.themeTextMain, DEFAULT_SITE_THEME.themeTextMain),
+    themeTextMuted: normalizeThemeColor(settings?.themeTextMuted, DEFAULT_SITE_THEME.themeTextMuted),
+    themeBrand: normalizeThemeColor(settings?.themeBrand, DEFAULT_SITE_THEME.themeBrand),
+    themeBrandSoft: normalizeThemeColor(settings?.themeBrandSoft, DEFAULT_SITE_THEME.themeBrandSoft),
+    themeBrandDeep: normalizeThemeColor(settings?.themeBrandDeep, DEFAULT_SITE_THEME.themeBrandDeep),
+  };
+}
+
 /* ---------- LANDING ---------- */
 function normalizeInstagramUrl(value) {
   const raw = String(value || "").trim();
@@ -271,6 +300,7 @@ export default function App() {
   const [contactWhatsapp, setContactWhatsapp] = useState("");
   const [contactInstagram, setContactInstagram] = useState("");
   const [address, setAddress] = useState("");
+  const [siteTheme, setSiteTheme] = useState(DEFAULT_SITE_THEME);
   const [bookingPaymentRequired, setBookingPaymentRequired] = useState(false);
   const [loadingCatalog, setLoadingCatalog] = useState(true);
   const [catalogError, setCatalogError] = useState("");
@@ -320,6 +350,7 @@ export default function App() {
         setContactWhatsapp(tenantConfig?.settings?.contactWhatsapp || "");
         setContactInstagram(tenantConfig?.settings?.contactInstagram || "");
         setAddress(tenantConfig?.settings?.address || "");
+        setSiteTheme(buildThemeFromSettings(tenantConfig?.settings || {}));
         setBookingPaymentRequired(tenantConfig?.bookingPayment?.required === true);
         const incomingLogoUrl = String(tenantConfig?.settings?.logoUrl || "").trim();
         setLogoUrl(
@@ -351,6 +382,18 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty("--bg-main", siteTheme.themeBgMain);
+    root.style.setProperty("--bg-elevated", siteTheme.themeBgElevated);
+    root.style.setProperty("--bg-soft", siteTheme.themeBgSoft);
+    root.style.setProperty("--text-main", siteTheme.themeTextMain);
+    root.style.setProperty("--text-muted", siteTheme.themeTextMuted);
+    root.style.setProperty("--brand", siteTheme.themeBrand);
+    root.style.setProperty("--brand-soft", siteTheme.themeBrandSoft);
+    root.style.setProperty("--brand-deep", siteTheme.themeBrandDeep);
+  }, [siteTheme]);
+
   const authRoute = location.pathname === "/login";
   const platformRoute = location.pathname.startsWith("/platform");
   if (tenantSuspended && !authRoute && !platformRoute) {
@@ -358,7 +401,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 notranslate" translate="no">
+    <div className="min-h-screen bg-[var(--bg-main)] text-[var(--text-main)] notranslate" translate="no">
       {/* NAVBAR SOLO EN LANDING */}
       <Routes>
         <Route

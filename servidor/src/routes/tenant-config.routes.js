@@ -86,6 +86,13 @@ function normalizeHeroImageUrl(v) {
   return "";
 }
 
+function normalizeHexColor(value, fallback) {
+  const raw = String(value || "").trim();
+  if (!raw) return fallback;
+  if (/^#[0-9a-fA-F]{6}$/.test(raw)) return raw.toUpperCase();
+  return fallback;
+}
+
 function getHeroImageColumnBySlideNo(slideNo) {
   const n = Number(slideNo);
   if (n === 1) return "hero_slide_1_image_url";
@@ -144,7 +151,10 @@ async function getTenantConfig(tenantId) {
        hero_slide_1_title, hero_slide_1_subtitle,
        hero_slide_2_title, hero_slide_2_subtitle,
        hero_slide_3_title, hero_slide_3_subtitle,
-       barber_commission_visibility_mode
+       barber_commission_visibility_mode,
+       theme_bg_main, theme_bg_elevated, theme_bg_soft,
+       theme_text_main, theme_text_muted,
+       theme_brand, theme_brand_soft, theme_brand_deep
      FROM tenant_settings
      WHERE tenant_id = :tenantId
      LIMIT 1`,
@@ -182,6 +192,14 @@ async function getTenantConfig(tenantId) {
             String(settingsRow.barber_commission_visibility_mode || "").toLowerCase() === "next_day"
               ? "next_day"
               : "realtime",
+          themeBgMain: normalizeHexColor(settingsRow.theme_bg_main, "#090A0D"),
+          themeBgElevated: normalizeHexColor(settingsRow.theme_bg_elevated, "#12141A"),
+          themeBgSoft: normalizeHexColor(settingsRow.theme_bg_soft, "#171A21"),
+          themeTextMain: normalizeHexColor(settingsRow.theme_text_main, "#F6F5F1"),
+          themeTextMuted: normalizeHexColor(settingsRow.theme_text_muted, "#B7B8BE"),
+          themeBrand: normalizeHexColor(settingsRow.theme_brand, "#D9A13D"),
+          themeBrandSoft: normalizeHexColor(settingsRow.theme_brand_soft, "#F2C879"),
+          themeBrandDeep: normalizeHexColor(settingsRow.theme_brand_deep, "#9D6F1D"),
           heroSlides: buildHeroSlidesFromRow(settingsRow),
         }
       : null,
@@ -277,6 +295,14 @@ router.put("/settings", auth, requireRole("admin"), async (req, res) => {
         String(req.body?.barberCommissionVisibilityMode || "").toLowerCase() === "next_day"
           ? "next_day"
           : "realtime",
+      themeBgMain: normalizeHexColor(req.body?.themeBgMain, "#090A0D"),
+      themeBgElevated: normalizeHexColor(req.body?.themeBgElevated, "#12141A"),
+      themeBgSoft: normalizeHexColor(req.body?.themeBgSoft, "#171A21"),
+      themeTextMain: normalizeHexColor(req.body?.themeTextMain, "#F6F5F1"),
+      themeTextMuted: normalizeHexColor(req.body?.themeTextMuted, "#B7B8BE"),
+      themeBrand: normalizeHexColor(req.body?.themeBrand, "#D9A13D"),
+      themeBrandSoft: normalizeHexColor(req.body?.themeBrandSoft, "#F2C879"),
+      themeBrandDeep: normalizeHexColor(req.body?.themeBrandDeep, "#9D6F1D"),
     };
 
     await pool.query(
@@ -286,7 +312,10 @@ router.put("/settings", auth, requireRole("admin"), async (req, res) => {
          hero_slide_1_title, hero_slide_1_subtitle, hero_slide_1_image_url,
          hero_slide_2_title, hero_slide_2_subtitle, hero_slide_2_image_url,
          hero_slide_3_title, hero_slide_3_subtitle, hero_slide_3_image_url,
-         barber_commission_visibility_mode
+         barber_commission_visibility_mode,
+         theme_bg_main, theme_bg_elevated, theme_bg_soft,
+         theme_text_main, theme_text_muted,
+         theme_brand, theme_brand_soft, theme_brand_deep
        )
        VALUES
        (
@@ -294,7 +323,10 @@ router.put("/settings", auth, requireRole("admin"), async (req, res) => {
          :heroSlide1Title, :heroSlide1Subtitle, :heroSlide1ImageUrl,
          :heroSlide2Title, :heroSlide2Subtitle, :heroSlide2ImageUrl,
          :heroSlide3Title, :heroSlide3Subtitle, :heroSlide3ImageUrl,
-         :barberCommissionVisibilityMode
+         :barberCommissionVisibilityMode,
+         :themeBgMain, :themeBgElevated, :themeBgSoft,
+         :themeTextMain, :themeTextMuted,
+         :themeBrand, :themeBrandSoft, :themeBrandDeep
        )
        ON DUPLICATE KEY UPDATE
          brand_name = VALUES(brand_name),
@@ -314,7 +346,15 @@ router.put("/settings", auth, requireRole("admin"), async (req, res) => {
          hero_slide_3_title = VALUES(hero_slide_3_title),
          hero_slide_3_subtitle = VALUES(hero_slide_3_subtitle),
          hero_slide_3_image_url = VALUES(hero_slide_3_image_url),
-         barber_commission_visibility_mode = VALUES(barber_commission_visibility_mode)`,
+         barber_commission_visibility_mode = VALUES(barber_commission_visibility_mode),
+         theme_bg_main = VALUES(theme_bg_main),
+         theme_bg_elevated = VALUES(theme_bg_elevated),
+         theme_bg_soft = VALUES(theme_bg_soft),
+         theme_text_main = VALUES(theme_text_main),
+         theme_text_muted = VALUES(theme_text_muted),
+         theme_brand = VALUES(theme_brand),
+         theme_brand_soft = VALUES(theme_brand_soft),
+         theme_brand_deep = VALUES(theme_brand_deep)`,
       payload
     );
 

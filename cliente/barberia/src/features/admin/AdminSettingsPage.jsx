@@ -21,6 +21,42 @@ const DEFAULT_HERO_SLIDES = [
     subtitle: "Detalles, estilo y precision en cada turno.",
   },
 ];
+const DEFAULT_SITE_THEME = {
+  themeBgMain: "#090A0D",
+  themeBgElevated: "#12141A",
+  themeBgSoft: "#171A21",
+  themeTextMain: "#F6F5F1",
+  themeTextMuted: "#B7B8BE",
+  themeBrand: "#D9A13D",
+  themeBrandSoft: "#F2C879",
+  themeBrandDeep: "#9D6F1D",
+};
+
+function normalizeServicePrepaymentDraft(service = {}) {
+  const modeRaw = String(service.bookingPrepaymentMode || "none").trim().toLowerCase();
+  const mode = ["none", "total", "percent", "fixed"].includes(modeRaw) ? modeRaw : "none";
+  return {
+    bookingPrepaymentMode: mode,
+    bookingPrepaymentPercent:
+      service.bookingPrepaymentPercent !== null && service.bookingPrepaymentPercent !== undefined
+        ? String(Number(service.bookingPrepaymentPercent || 0))
+        : "",
+    bookingPrepaymentFixedArs:
+      service.bookingPrepaymentFixedArs !== null && service.bookingPrepaymentFixedArs !== undefined
+        ? String(Number(service.bookingPrepaymentFixedArs || 0))
+        : "",
+  };
+}
+
+function describeServicePrepayment(service = {}) {
+  const modeRaw = String(service.bookingPrepaymentMode || "none").trim().toLowerCase();
+  if (modeRaw === "total") return "Pago total online";
+  if (modeRaw === "percent") return `Seña ${Number(service.bookingPrepaymentPercent || 0)}%`;
+  if (modeRaw === "fixed") {
+    return `Seña fija $${Number(service.bookingPrepaymentFixedArs || 0)} ARS`;
+  }
+  return "Sin seña online";
+}
 
 function normalizeHeroSlides(incomingSlides) {
   return DEFAULT_HERO_SLIDES.map((fallback, idx) => {
@@ -78,6 +114,7 @@ export default function AdminSettingsPage() {
     logoUrl: "",
     heroMode: "generic",
     barberCommissionVisibilityMode: "realtime",
+    ...DEFAULT_SITE_THEME,
     heroSlides: normalizeHeroSlides(DEFAULT_HERO_SLIDES),
   });
   const [branches, setBranches] = useState([]);
@@ -98,6 +135,9 @@ export default function AdminSettingsPage() {
     price: "",
     durationMin: "30",
     quoteOnly: false,
+    bookingPrepaymentMode: "none",
+    bookingPrepaymentPercent: "",
+    bookingPrepaymentFixedArs: "",
   });
   const [galleryFile, setGalleryFile] = useState(null);
   const [galleryUploading, setGalleryUploading] = useState(false);
@@ -129,6 +169,7 @@ export default function AdminSettingsPage() {
     note: "",
   });
   const [barberCommissionDraft, setBarberCommissionDraft] = useState({});
+  const [servicePrepaymentDraft, setServicePrepaymentDraft] = useState({});
 
   async function reloadAll() {
     setLoading(true);
@@ -163,6 +204,11 @@ export default function AdminSettingsPage() {
         )
       );
       setServices(Array.isArray(ss) ? ss : []);
+      setServicePrepaymentDraft(
+        Object.fromEntries(
+          (Array.isArray(ss) ? ss : []).map((s) => [s.id, normalizeServicePrepaymentDraft(s)])
+        )
+      );
       const incomingSchedules = Array.isArray(barberScheduleResp?.schedules)
         ? barberScheduleResp.schedules
         : [];
@@ -505,9 +551,26 @@ export default function AdminSettingsPage() {
           price: newService.quoteOnly ? 0 : Number(newService.price),
           durationMin: newService.quoteOnly ? 0 : Number(newService.durationMin),
           quoteOnly: !!newService.quoteOnly,
+          bookingPrepaymentMode: newService.quoteOnly ? "none" : newService.bookingPrepaymentMode,
+          bookingPrepaymentPercent:
+            newService.quoteOnly || newService.bookingPrepaymentMode !== "percent"
+              ? null
+              : Number(newService.bookingPrepaymentPercent || 0),
+          bookingPrepaymentFixedArs:
+            newService.quoteOnly || newService.bookingPrepaymentMode !== "fixed"
+              ? null
+              : Number(newService.bookingPrepaymentFixedArs || 0),
         },
       });
-      setNewService({ name: "", price: "", durationMin: "30", quoteOnly: false });
+      setNewService({
+        name: "",
+        price: "",
+        durationMin: "30",
+        quoteOnly: false,
+        bookingPrepaymentMode: "none",
+        bookingPrepaymentPercent: "",
+        bookingPrepaymentFixedArs: "",
+      });
       await reloadAll();
       markOk("Servicio agregado");
     } catch (e) {
@@ -524,6 +587,35 @@ export default function AdminSettingsPage() {
       markOk("Servicio desactivado");
     } catch (e) {
       setError(e.message || "No se pudo desactivar servicio");
+    }
+  }
+
+  async function saveServicePrepayment(id) {
+    const draft = servicePrepaymentDraft[id] || {
+      bookingPrepaymentMode: "none",
+      bookingPrepaymentPercent: "",
+      bookingPrepaymentFixedArs: "",
+    };
+    setError("");
+    try {
+      await apiFetch(`/services/${id}`, {
+        method: "PATCH",
+        body: {
+          bookingPrepaymentMode: draft.bookingPrepaymentMode,
+          bookingPrepaymentPercent:
+            draft.bookingPrepaymentMode === "percent"
+              ? Number(draft.bookingPrepaymentPercent || 0)
+              : null,
+          bookingPrepaymentFixedArs:
+            draft.bookingPrepaymentMode === "fixed"
+              ? Number(draft.bookingPrepaymentFixedArs || 0)
+              : null,
+        },
+      });
+      await reloadAll();
+      markOk("Seña del servicio actualizada");
+    } catch (e) {
+      setError(e.message || "No se pudo actualizar la seña del servicio");
     }
   }
 
@@ -907,6 +999,57 @@ export default function AdminSettingsPage() {
                 <option value="realtime">Tiempo real (ven lo ganado hoy)</option>
                 <option value="next_day">Al día siguiente (ocultar comisiones de hoy)</option>
               </select>
+            </div>
+            <div className="rounded-xl bg-zinc-900/70 px-3 py-2 ring-1 ring-white/10 md:col-span-2">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                  Colores del sitio web
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      ...DEFAULT_SITE_THEME,
+                    }))
+                  }
+                  className="rounded-lg bg-zinc-800 px-2 py-1 text-[11px] font-semibold text-zinc-100 hover:bg-zinc-700"
+                >
+                  Restaurar colores por defecto
+                </button>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-4">
+                {[
+                  { key: "themeBgMain", label: "Fondo principal" },
+                  { key: "themeBgElevated", label: "Fondo secundario" },
+                  { key: "themeBgSoft", label: "Superficie cards" },
+                  { key: "themeTextMain", label: "Texto principal" },
+                  { key: "themeTextMuted", label: "Texto secundario" },
+                  { key: "themeBrand", label: "Marca principal" },
+                  { key: "themeBrandSoft", label: "Marca hover/acento" },
+                  { key: "themeBrandDeep", label: "Marca activa" },
+                ].map((item) => (
+                  <label key={item.key} className="rounded-lg bg-zinc-950/70 px-2 py-2 ring-1 ring-white/10">
+                    <div className="mb-1 text-[11px] text-zinc-400">{item.label}</div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={settings[item.key] || DEFAULT_SITE_THEME[item.key]}
+                        onChange={(e) =>
+                          setSettings((prev) => ({
+                            ...prev,
+                            [item.key]: e.target.value.toUpperCase(),
+                          }))
+                        }
+                        className="h-8 w-9 cursor-pointer rounded border border-white/15 bg-transparent p-0"
+                      />
+                      <span className="text-xs font-semibold text-zinc-200">
+                        {String(settings[item.key] || DEFAULT_SITE_THEME[item.key]).toUpperCase()}
+                      </span>
+                    </div>
+                  </label>
+                ))}
+              </div>
             </div>
           </div>
           <div className="rounded-xl bg-zinc-900/70 p-3 ring-1 ring-white/10">
@@ -1668,7 +1811,7 @@ export default function AdminSettingsPage() {
 
         <SectionCard
           title="Servicios y Precios"
-          subtitle="Cada servicio necesita nombre, precio en ARS y duración en minutos."
+          subtitle="Cada servicio necesita nombre, precio, duración y opcionalmente una seña online."
         >
           <div className="grid gap-2 md:grid-cols-4">
             <input
@@ -1708,11 +1851,64 @@ export default function AdminSettingsPage() {
                   quoteOnly: e.target.checked,
                   price: e.target.checked ? "0" : prev.price,
                   durationMin: e.target.checked ? "0" : prev.durationMin,
+                  bookingPrepaymentMode: e.target.checked ? "none" : prev.bookingPrepaymentMode,
+                  bookingPrepaymentPercent: e.target.checked ? "" : prev.bookingPrepaymentPercent,
+                  bookingPrepaymentFixedArs: e.target.checked ? "" : prev.bookingPrepaymentFixedArs,
                 }))
               }
             />
             Servicio por presupuesto (sin reserva online)
           </label>
+          {!newService.quoteOnly ? (
+            <div className="rounded-xl bg-zinc-900/70 p-3 ring-1 ring-white/10">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                Cobro online al reservar
+              </div>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <select
+                  value={newService.bookingPrepaymentMode}
+                  onChange={(e) =>
+                    setNewService((prev) => ({
+                      ...prev,
+                      bookingPrepaymentMode: e.target.value,
+                    }))
+                  }
+                  className="rounded-xl bg-zinc-950 px-3 py-2 text-sm"
+                >
+                  <option value="none">Sin seña</option>
+                  <option value="total">Pago total</option>
+                  <option value="percent">Seña por porcentaje</option>
+                  <option value="fixed">Seña fija (ARS)</option>
+                </select>
+                {newService.bookingPrepaymentMode === "percent" ? (
+                  <input
+                    className="rounded-xl bg-zinc-950 px-3 py-2 text-sm"
+                    placeholder="% seña (ej: 30)"
+                    value={newService.bookingPrepaymentPercent}
+                    onChange={(e) =>
+                      setNewService((prev) => ({
+                        ...prev,
+                        bookingPrepaymentPercent: e.target.value,
+                      }))
+                    }
+                  />
+                ) : null}
+                {newService.bookingPrepaymentMode === "fixed" ? (
+                  <input
+                    className="rounded-xl bg-zinc-950 px-3 py-2 text-sm"
+                    placeholder="Seña fija ARS (ej: 15000)"
+                    value={newService.bookingPrepaymentFixedArs}
+                    onChange={(e) =>
+                      setNewService((prev) => ({
+                        ...prev,
+                        bookingPrepaymentFixedArs: e.target.value,
+                      }))
+                    }
+                  />
+                ) : null}
+              </div>
+            </div>
+          ) : null}
           <div className="space-y-2">
             {services.length ? (
               services.map((s) => (
@@ -1720,18 +1916,83 @@ export default function AdminSettingsPage() {
                   key={s.id}
                   className="flex flex-col items-start gap-2 rounded-xl bg-zinc-900/80 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
                 >
-                  <div>
+                  <div className="w-full">
                     <div className="font-medium">{s.name}</div>
                     <div className="text-xs text-zinc-400">
                       {s.quoteOnly ? "Solo presupuesto por WhatsApp" : `$${s.price} ARS · ${s.durationMin} min`}
                     </div>
+                    {!s.quoteOnly ? (
+                      <div className="mt-1 text-xs text-cyan-300">{describeServicePrepayment(s)}</div>
+                    ) : null}
+                    {!s.quoteOnly ? (
+                      <div className="mt-2 grid gap-2 sm:grid-cols-4">
+                        <select
+                          value={servicePrepaymentDraft[s.id]?.bookingPrepaymentMode || "none"}
+                          onChange={(e) =>
+                            setServicePrepaymentDraft((prev) => ({
+                              ...prev,
+                              [s.id]: {
+                                ...(prev[s.id] || normalizeServicePrepaymentDraft(s)),
+                                bookingPrepaymentMode: e.target.value,
+                              },
+                            }))
+                          }
+                          className="rounded-lg bg-zinc-950 px-2 py-1 text-xs ring-1 ring-white/10 sm:col-span-2"
+                        >
+                          <option value="none">Sin seña</option>
+                          <option value="total">Pago total</option>
+                          <option value="percent">Seña %</option>
+                          <option value="fixed">Seña fija ARS</option>
+                        </select>
+                        {servicePrepaymentDraft[s.id]?.bookingPrepaymentMode === "percent" ? (
+                          <input
+                            className="rounded-lg bg-zinc-950 px-2 py-1 text-xs ring-1 ring-white/10"
+                            placeholder="%"
+                            value={servicePrepaymentDraft[s.id]?.bookingPrepaymentPercent || ""}
+                            onChange={(e) =>
+                              setServicePrepaymentDraft((prev) => ({
+                                ...prev,
+                                [s.id]: {
+                                  ...(prev[s.id] || normalizeServicePrepaymentDraft(s)),
+                                  bookingPrepaymentPercent: e.target.value,
+                                },
+                              }))
+                            }
+                          />
+                        ) : null}
+                        {servicePrepaymentDraft[s.id]?.bookingPrepaymentMode === "fixed" ? (
+                          <input
+                            className="rounded-lg bg-zinc-950 px-2 py-1 text-xs ring-1 ring-white/10"
+                            placeholder="ARS"
+                            value={servicePrepaymentDraft[s.id]?.bookingPrepaymentFixedArs || ""}
+                            onChange={(e) =>
+                              setServicePrepaymentDraft((prev) => ({
+                                ...prev,
+                                [s.id]: {
+                                  ...(prev[s.id] || normalizeServicePrepaymentDraft(s)),
+                                  bookingPrepaymentFixedArs: e.target.value,
+                                },
+                              }))
+                            }
+                          />
+                        ) : null}
+                        <button
+                          onClick={() => saveServicePrepayment(s.id)}
+                          className="rounded-lg bg-zinc-800 px-2 py-1 text-xs font-semibold text-zinc-100 hover:bg-zinc-700"
+                        >
+                          Guardar seña
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
-                  <button
-                    onClick={() => removeService(s.id)}
-                    className="rounded-lg bg-red-500/20 px-3 py-1 text-xs text-red-200 hover:bg-red-500/30"
-                  >
-                    Eliminar
-                  </button>
+                  <div className="w-full sm:w-auto">
+                    <button
+                      onClick={() => removeService(s.id)}
+                      className="rounded-lg bg-red-500/20 px-3 py-1 text-xs text-red-200 hover:bg-red-500/30"
+                    >
+                      Eliminar
+                    </button>
+                  </div>
                 </div>
               ))
             ) : (

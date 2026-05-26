@@ -326,7 +326,9 @@ async function finalizeAppointmentBookingPayment({
     await conn.beginTransaction();
 
     const [intentRows] = await conn.query(
-      `SELECT id, status, amount_ars, customer_name, customer_phone
+      `SELECT id, status, amount_ars, service_total_ars, remaining_ars,
+              prepayment_mode, prepayment_percent_snapshot, prepayment_fixed_ars_snapshot,
+              customer_name, customer_phone
        FROM appointment_payment_intents
        WHERE tenant_id = :tenantId
          AND hold_token = :holdToken
@@ -456,7 +458,10 @@ async function finalizeAppointmentBookingPayment({
 
     const commissionPct = Number(barber.commission_pct || 0);
     const servicePriceArs = Number(service.price_ars || 0);
-    const commissionArs = Math.round((servicePriceArs * commissionPct) / 100);
+    const serviceTotalSnapshot = Number(intent.service_total_ars || 0) || servicePriceArs;
+    const commissionArs = Math.round((serviceTotalSnapshot * commissionPct) / 100);
+    const paidSnapshot = Number(intent.amount_ars || 0);
+    const dueSnapshot = Math.max(0, serviceTotalSnapshot - paidSnapshot);
 
     let ins;
     try {
@@ -465,11 +470,13 @@ async function finalizeAppointmentBookingPayment({
          (tenant_id, branch_id, barber_id, service_id,
           service_name_snapshot, service_price_ars_snapshot, service_duration_min_snapshot,
           barber_commission_pct_snapshot, barber_commission_ars_snapshot,
+          booking_paid_ars_snapshot, booking_due_ars_snapshot,
           customer_name, customer_phone, start_at, end_at, status)
          VALUES
          (:tenantId, :branchId, :barberId, :serviceId,
           :serviceNameSnapshot, :servicePriceSnapshot, :serviceDurationSnapshot,
           :barberCommissionPctSnapshot, :barberCommissionArsSnapshot,
+          :bookingPaidArsSnapshot, :bookingDueArsSnapshot,
           :customerName, :customerPhone, :startAt, :endAt, 'pending')`,
         {
           tenantId,
@@ -477,10 +484,12 @@ async function finalizeAppointmentBookingPayment({
           barberId: h.barber_id,
           serviceId: h.service_id,
           serviceNameSnapshot: String(service.name || "").trim().slice(0, 120) || null,
-          servicePriceSnapshot: servicePriceArs || null,
+          servicePriceSnapshot: serviceTotalSnapshot || null,
           serviceDurationSnapshot: Number(service.duration_min || 0) || null,
           barberCommissionPctSnapshot: commissionPct,
           barberCommissionArsSnapshot: commissionArs,
+          bookingPaidArsSnapshot: paidSnapshot,
+          bookingDueArsSnapshot: dueSnapshot,
           customerName: String(intent.customer_name || "").trim().slice(0, 120),
           customerPhone: String(intent.customer_phone || "").replace(/\D/g, "").slice(0, 20),
           startAt: h.start_at,
