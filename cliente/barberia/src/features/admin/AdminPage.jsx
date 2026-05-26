@@ -56,6 +56,10 @@ function parseDateParam(value) {
 function mapApiAppointment(r) {
   const start = parseMySQLDateTimeLocal(r.start_at);
   const end = parseMySQLDateTimeLocal(r.end_at);
+  const notes = String(r.notes || "");
+  const notesLower = notes.toLowerCase();
+  const isWalkIn =
+    notesLower.includes("servicio sin turno") || notesLower.includes("registrado manualmente");
 
   return {
     id: String(r.id),
@@ -69,7 +73,8 @@ function mapApiAppointment(r) {
     startAt: start.toISOString(),
     endAt: end.toISOString(),
     status: r.status,
-    notes: r.notes || "",
+    notes,
+    isWalkIn,
   };
 }
 
@@ -1571,6 +1576,8 @@ export default function AdminPage({
         >
           {visibleBarbers.map((b) => {
             const list = apptsByBarber.get(b.id) || [];
+            const walkInAppointments = list.filter((a) => a.isWalkIn);
+            const gridAppointments = list.filter((a) => !a.isWalkIn);
             const slots = slotsByBarber.get(b.id) || [];
             const inProg = getInProgress(b.id);
             const next = getNext(b.id);
@@ -1578,7 +1585,7 @@ export default function AdminPage({
             const matchedAppointmentIds = new Set(
               slots
                 .map((s) => {
-                  const appt = list.find((a) => {
+                  const appt = gridAppointments.find((a) => {
                     const t = new Date(a.startAt).getTime();
                     return (
                       t >= s.start.getTime() &&
@@ -1590,7 +1597,9 @@ export default function AdminPage({
                 })
                 .filter(Boolean)
             );
-            const appointmentsOutsideGrid = list.filter((a) => !matchedAppointmentIds.has(a.id));
+            const appointmentsOutsideGrid = gridAppointments.filter(
+              (a) => !matchedAppointmentIds.has(a.id)
+            );
 
             let remaining = null;
             if (inProg) {
@@ -1683,7 +1692,7 @@ export default function AdminPage({
                   ) : null}
 
                   {slots.map((s) => {
-                    const appt = list.find((a) => {
+                    const appt = gridAppointments.find((a) => {
                       const t = new Date(a.startAt).getTime();
                       return (
                         t >= s.start.getTime() &&
@@ -1811,6 +1820,44 @@ export default function AdminPage({
                       </div>
                     );
                   })}
+
+                  {walkInAppointments.length ? (
+                    <div className="mt-2 rounded-2xl bg-zinc-900/30 p-3 ring-1 ring-white/10">
+                      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-cyan-300">
+                        Servicios sin turno
+                      </div>
+                      <div className="space-y-2">
+                        {walkInAppointments.map((appt) => (
+                          <div
+                            key={`walkin-${appt.id}`}
+                            className="rounded-xl bg-zinc-950/40 p-3 ring-1 ring-white/10"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <div className="text-xs text-zinc-400">
+                                  {formatTime(new Date(appt.startAt))}
+                                </div>
+                                <div className="mt-1 font-semibold">{appt.customerName}</div>
+                                <div className="text-xs text-zinc-400">
+                                  {appt.serviceNameSnapshot ||
+                                    serviceById.get(appt.serviceId)?.name ||
+                                    "Servicio"}
+                                  {" · "}
+                                  {appt.serviceDurationSnapshot ||
+                                    serviceById.get(appt.serviceId)?.durationMin ||
+                                    30}{" "}
+                                  min
+                                </div>
+                              </div>
+                              <span className={statusBadge(appt.status)}>
+                                {appt.status === "done" ? "Finalizado" : "Registrado"}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
 
                   {appointmentsOutsideGrid.length ? (
                     <div className="mt-2 rounded-2xl bg-zinc-900/30 p-3 ring-1 ring-white/10">
