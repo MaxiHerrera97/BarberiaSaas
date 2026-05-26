@@ -143,7 +143,8 @@ async function getTenantConfig(tenantId) {
        hero_slide_1_image_url, hero_slide_2_image_url, hero_slide_3_image_url,
        hero_slide_1_title, hero_slide_1_subtitle,
        hero_slide_2_title, hero_slide_2_subtitle,
-       hero_slide_3_title, hero_slide_3_subtitle
+       hero_slide_3_title, hero_slide_3_subtitle,
+       barber_commission_visibility_mode
      FROM tenant_settings
      WHERE tenant_id = :tenantId
      LIMIT 1`,
@@ -177,6 +178,10 @@ async function getTenantConfig(tenantId) {
           address: settingsRow.address || "",
           logoUrl: settingsRow.logo_url || "",
           heroMode: settingsRow.hero_mode || "generic",
+          barberCommissionVisibilityMode:
+            String(settingsRow.barber_commission_visibility_mode || "").toLowerCase() === "next_day"
+              ? "next_day"
+              : "realtime",
           heroSlides: buildHeroSlidesFromRow(settingsRow),
         }
       : null,
@@ -268,6 +273,10 @@ router.put("/settings", auth, requireRole("admin"), async (req, res) => {
       heroSlide3ImageUrl: normalizeHeroImageUrl(slide3?.imageUrl),
       heroSlide3Subtitle:
         normalizeHeroText(slide3?.subtitle, 255) || defaultHeroSlides[2].subtitle,
+      barberCommissionVisibilityMode:
+        String(req.body?.barberCommissionVisibilityMode || "").toLowerCase() === "next_day"
+          ? "next_day"
+          : "realtime",
     };
 
     await pool.query(
@@ -276,14 +285,16 @@ router.put("/settings", auth, requireRole("admin"), async (req, res) => {
          tenant_id, brand_name, tagline, contact_phone, contact_whatsapp, contact_instagram, address, logo_url, hero_mode,
          hero_slide_1_title, hero_slide_1_subtitle, hero_slide_1_image_url,
          hero_slide_2_title, hero_slide_2_subtitle, hero_slide_2_image_url,
-         hero_slide_3_title, hero_slide_3_subtitle, hero_slide_3_image_url
+         hero_slide_3_title, hero_slide_3_subtitle, hero_slide_3_image_url,
+         barber_commission_visibility_mode
        )
        VALUES
        (
          :tenantId, :brandName, :tagline, :contactPhone, :contactWhatsapp, :contactInstagram, :address, :logoUrl, :heroMode,
          :heroSlide1Title, :heroSlide1Subtitle, :heroSlide1ImageUrl,
          :heroSlide2Title, :heroSlide2Subtitle, :heroSlide2ImageUrl,
-         :heroSlide3Title, :heroSlide3Subtitle, :heroSlide3ImageUrl
+         :heroSlide3Title, :heroSlide3Subtitle, :heroSlide3ImageUrl,
+         :barberCommissionVisibilityMode
        )
        ON DUPLICATE KEY UPDATE
          brand_name = VALUES(brand_name),
@@ -302,7 +313,8 @@ router.put("/settings", auth, requireRole("admin"), async (req, res) => {
          hero_slide_2_image_url = VALUES(hero_slide_2_image_url),
          hero_slide_3_title = VALUES(hero_slide_3_title),
          hero_slide_3_subtitle = VALUES(hero_slide_3_subtitle),
-         hero_slide_3_image_url = VALUES(hero_slide_3_image_url)`,
+         hero_slide_3_image_url = VALUES(hero_slide_3_image_url),
+         barber_commission_visibility_mode = VALUES(barber_commission_visibility_mode)`,
       payload
     );
 

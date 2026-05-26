@@ -1457,12 +1457,36 @@ router.get("/cash-summary", auth, async (req, res) => {
 
     const monthRange = buildMonthRange(qYear, qMonth);
 
+    let barberCommissionVisibilityMode = "realtime";
+    try {
+      const [[settingsRow]] = await pool.query(
+        `SELECT barber_commission_visibility_mode
+         FROM tenant_settings
+         WHERE tenant_id = :tenantId
+         LIMIT 1`,
+        { tenantId: req.tenant.id }
+      );
+      if (String(settingsRow?.barber_commission_visibility_mode || "").toLowerCase() === "next_day") {
+        barberCommissionVisibilityMode = "next_day";
+      }
+    } catch (e) {
+      if (e?.code !== "ER_NO_SUCH_TABLE" && e?.code !== "ER_BAD_FIELD_ERROR") {
+        throw e;
+      }
+    }
+
+    const tenantToday = formatDateOnlyInTimezone(new Date(), req.tenant?.timezone) || toMySQLDateOnly(new Date());
+    const hideTodayCommissions =
+      role === "barber" && barberCommissionVisibilityMode === "next_day";
+    const visibilityFilter = hideTodayCommissions ? " AND a.start_at < :barberVisibleFrom " : "";
+
     const barberFilter = role === "barber" ? " AND a.barber_id = :barberId " : "";
     const branchFilter = branchId ? " AND a.branch_id = :branchId " : "";
     const baseParams = {
       tenantId: req.tenant.id,
       ...(branchId ? { branchId } : {}),
       ...(role === "barber" ? { barberId: Number(req.user.barberId) } : {}),
+      ...(hideTodayCommissions ? { barberVisibleFrom: `${tenantToday} 00:00:00` } : {}),
     };
 
     const [dayRows] = await pool.query(
@@ -1483,6 +1507,7 @@ router.get("/cash-summary", auth, async (req, res) => {
         AND a.status = 'done'
         AND a.start_at >= :start
         AND a.start_at < :end
+        ${visibilityFilter}
         ${barberFilter}
         ${branchFilter}
       `,
@@ -1511,6 +1536,7 @@ router.get("/cash-summary", auth, async (req, res) => {
         AND a.status = 'done'
         AND a.start_at >= :start
         AND a.start_at < :end
+        ${visibilityFilter}
         ${barberFilter}
         ${branchFilter}
       `,
@@ -1541,6 +1567,7 @@ router.get("/cash-summary", auth, async (req, res) => {
         AND a.status = 'done'
         AND a.start_at >= :start
         AND a.start_at < :end
+        ${visibilityFilter}
         ${barberFilter}
         ${branchFilter}
       GROUP BY a.barber_id, b.full_name
@@ -1566,6 +1593,7 @@ router.get("/cash-summary", auth, async (req, res) => {
         AND a.status = 'done'
         AND a.start_at >= :start
         AND a.start_at < :end
+        ${visibilityFilter}
         ${barberFilter}
         ${branchFilter}
       GROUP BY a.service_id, s.name
@@ -1599,6 +1627,7 @@ router.get("/cash-summary", auth, async (req, res) => {
         AND a.status = 'done'
         AND a.start_at >= :start
         AND a.start_at < :end
+        ${visibilityFilter}
         ${barberFilter}
         ${branchFilter}
       GROUP BY a.barber_id, b.full_name
@@ -1624,6 +1653,7 @@ router.get("/cash-summary", auth, async (req, res) => {
         AND a.status = 'done'
         AND a.start_at >= :start
         AND a.start_at < :end
+        ${visibilityFilter}
         ${barberFilter}
         ${branchFilter}
       GROUP BY a.service_id, s.name
@@ -1835,6 +1865,11 @@ router.get("/cash-summary", auth, async (req, res) => {
         services_done: Number(r.services_done) || 0,
         revenue_ars: Number(r.revenue_ars) || 0,
       })),
+      barberCommission: {
+        visibilityMode: barberCommissionVisibilityMode,
+        hiddenToday: hideTodayCommissions,
+        hiddenBeforeDate: hideTodayCommissions ? tenantToday : null,
+      },
       closing,
     });
   } catch (e) {

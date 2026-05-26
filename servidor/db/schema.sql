@@ -131,6 +131,7 @@ CREATE TABLE IF NOT EXISTS tenant_settings (
   hero_slide_3_image_url VARCHAR(500) NULL,
   hero_slide_3_title VARCHAR(120) NULL,
   hero_slide_3_subtitle VARCHAR(255) NULL,
+  barber_commission_visibility_mode ENUM('realtime', 'next_day') NOT NULL DEFAULT 'realtime',
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (tenant_id),
   CONSTRAINT fk_tenant_settings_tenant

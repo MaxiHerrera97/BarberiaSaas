@@ -228,15 +228,19 @@ export default function AdminPage({
   const effectiveOnlinePaymentMode = manualOnlySubscription
     ? "checkout"
     : billingInfo?.onlinePayment?.mode;
-  const dayCashSource = cashSummary?.closing?.isClosed
+  const isBarberRole = session?.role === "barber";
+  const useClosingSnapshot = session?.role === "admin" && cashSummary?.closing?.isClosed;
+  const dayCashSource = useClosingSnapshot
     ? cashSummary?.closing?.snapshot?.daily || cashSummary?.daily || {}
     : cashSummary?.daily || {};
-  const dayByBarberSource = cashSummary?.closing?.isClosed
+  const dayByBarberSource = useClosingSnapshot
     ? cashSummary?.closing?.snapshot?.byBarber || cashSummary?.byBarberDay || []
     : cashSummary?.byBarberDay || [];
-  const dayByServiceSource = cashSummary?.closing?.isClosed
+  const dayByServiceSource = useClosingSnapshot
     ? cashSummary?.closing?.snapshot?.byService || cashSummary?.byServiceDay || []
     : cashSummary?.byServiceDay || [];
+  const commissionsVisibleNextDay =
+    isBarberRole && String(cashSummary?.barberCommission?.visibilityMode || "") === "next_day";
   const canCloseCashDay = Number(dayCashSource?.services_done || 0) > 0;
 
   useEffect(() => {
@@ -1220,39 +1224,39 @@ export default function AdminPage({
                 {cashError}
               </div>
             ) : null}
+            {commissionsVisibleNextDay ? (
+              <div className="mt-3 rounded-xl bg-amber-500/10 px-3 py-2 text-xs text-amber-200 ring-1 ring-amber-500/30">
+                Las comisiones de hoy se habilitan para visualización al día siguiente.
+              </div>
+            ) : null}
 
             <div className="mt-3 grid gap-3 md:grid-cols-2">
               <div className="rounded-xl bg-zinc-950/60 p-3 ring-1 ring-white/10">
                 <div className="text-xs text-zinc-400">Hoy</div>
-                <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
+                <div
+                  className={[
+                    "mt-2 grid gap-2 text-sm",
+                    isBarberRole ? "grid-cols-2" : "grid-cols-3",
+                  ].join(" ")}
+                >
                   <div>
                     <div className="text-zinc-400 text-xs">Servicios</div>
                     <div className="font-semibold text-zinc-100">
                       {cashLoading ? "..." : Number(dayCashSource?.services_done || 0)}
                     </div>
                   </div>
-                  <div>
-                    <div className="text-zinc-400 text-xs">Facturación</div>
-                    <div className="font-semibold text-emerald-300">
-                      {cashLoading
-                        ? "..."
-                        : new Intl.NumberFormat("es-AR", {
-                            style: "currency",
-                            currency: "ARS",
-                            maximumFractionDigits: 0,
-                          }).format(Number(dayCashSource?.revenue_ars || 0))}
+                  {!isBarberRole ? (
+                    <div>
+                      <div className="text-zinc-400 text-xs">Facturación</div>
+                      <div className="font-semibold text-emerald-300">
+                        {cashLoading ? "..." : formatArs(dayCashSource?.revenue_ars)}
+                      </div>
                     </div>
-                  </div>
+                  ) : null}
                   <div>
                     <div className="text-zinc-400 text-xs">Comisión</div>
                     <div className="font-semibold text-cyan-300">
-                      {cashLoading
-                        ? "..."
-                        : new Intl.NumberFormat("es-AR", {
-                            style: "currency",
-                            currency: "ARS",
-                            maximumFractionDigits: 0,
-                          }).format(Number(dayCashSource?.commission_ars || 0))}
+                      {cashLoading ? "..." : formatArs(dayCashSource?.commission_ars)}
                     </div>
                   </div>
                 </div>
@@ -1260,35 +1264,30 @@ export default function AdminPage({
 
               <div className="rounded-xl bg-zinc-950/60 p-3 ring-1 ring-white/10">
                 <div className="text-xs text-zinc-400">Mes actual</div>
-                <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
+                <div
+                  className={[
+                    "mt-2 grid gap-2 text-sm",
+                    isBarberRole ? "grid-cols-2" : "grid-cols-3",
+                  ].join(" ")}
+                >
                   <div>
                     <div className="text-zinc-400 text-xs">Servicios</div>
                     <div className="font-semibold text-zinc-100">
                       {cashLoading ? "..." : Number(cashSummary?.monthly?.services_done || 0)}
                     </div>
                   </div>
-                  <div>
-                    <div className="text-zinc-400 text-xs">Facturación</div>
-                    <div className="font-semibold text-emerald-300">
-                      {cashLoading
-                        ? "..."
-                        : new Intl.NumberFormat("es-AR", {
-                            style: "currency",
-                            currency: "ARS",
-                            maximumFractionDigits: 0,
-                          }).format(Number(cashSummary?.monthly?.revenue_ars || 0))}
+                  {!isBarberRole ? (
+                    <div>
+                      <div className="text-zinc-400 text-xs">Facturación</div>
+                      <div className="font-semibold text-emerald-300">
+                        {cashLoading ? "..." : formatArs(cashSummary?.monthly?.revenue_ars)}
+                      </div>
                     </div>
-                  </div>
+                  ) : null}
                   <div>
                     <div className="text-zinc-400 text-xs">Comisión</div>
                     <div className="font-semibold text-cyan-300">
-                      {cashLoading
-                        ? "..."
-                        : new Intl.NumberFormat("es-AR", {
-                            style: "currency",
-                            currency: "ARS",
-                            maximumFractionDigits: 0,
-                          }).format(Number(cashSummary?.monthly?.commission_ars || 0))}
+                      {cashLoading ? "..." : formatArs(cashSummary?.monthly?.commission_ars)}
                     </div>
                   </div>
                 </div>
@@ -1310,12 +1309,13 @@ export default function AdminPage({
                         className="flex min-w-0 items-center justify-between gap-2 overflow-hidden rounded-lg bg-zinc-900/60 px-2 py-1 ring-1 ring-white/10"
                       >
                         <div className="min-w-0 flex-1 truncate text-zinc-200">{row.barber_name}</div>
-                        <div className="shrink-0 text-right font-semibold text-emerald-300">
-                          {new Intl.NumberFormat("es-AR", {
-                            style: "currency",
-                            currency: "ARS",
-                            maximumFractionDigits: 0,
-                          }).format(Number(row.revenue_ars || 0))}
+                        <div
+                          className={[
+                            "shrink-0 text-right font-semibold",
+                            isBarberRole ? "text-cyan-300" : "text-emerald-300",
+                          ].join(" ")}
+                        >
+                          {isBarberRole ? formatArs(row.commission_ars) : formatArs(row.revenue_ars)}
                         </div>
                       </div>
                     ))}
@@ -1337,13 +1337,15 @@ export default function AdminPage({
                         className="flex min-w-0 items-center justify-between gap-2 overflow-hidden rounded-lg bg-zinc-900/60 px-2 py-1 ring-1 ring-white/10"
                       >
                         <div className="min-w-0 flex-1 truncate text-zinc-200">{row.service_name}</div>
-                        <div className="shrink-0 text-right font-semibold text-amber-300">
-                          {new Intl.NumberFormat("es-AR", {
-                            style: "currency",
-                            currency: "ARS",
-                            maximumFractionDigits: 0,
-                          }).format(Number(row.revenue_ars || 0))}
-                        </div>
+                        {isBarberRole ? (
+                          <div className="shrink-0 text-right font-semibold text-zinc-300">
+                            {Number(row.services_done || 0)} serv.
+                          </div>
+                        ) : (
+                          <div className="shrink-0 text-right font-semibold text-amber-300">
+                            {formatArs(row.revenue_ars)}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

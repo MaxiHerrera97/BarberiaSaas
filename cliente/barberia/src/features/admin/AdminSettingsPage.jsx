@@ -77,6 +77,7 @@ export default function AdminSettingsPage() {
     address: "",
     logoUrl: "",
     heroMode: "generic",
+    barberCommissionVisibilityMode: "realtime",
     heroSlides: normalizeHeroSlides(DEFAULT_HERO_SLIDES),
   });
   const [branches, setBranches] = useState([]);
@@ -889,6 +890,24 @@ export default function AdminSettingsPage() {
               value={settings.address}
               onChange={(e) => setSettings({ ...settings, address: e.target.value })}
             />
+            <div className="rounded-xl bg-zinc-900/70 px-3 py-2 ring-1 ring-white/10">
+              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                Visibilidad de comisiones (barberos)
+              </div>
+              <select
+                className="w-full rounded-lg bg-zinc-950 px-3 py-2 text-sm"
+                value={settings.barberCommissionVisibilityMode || "realtime"}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    barberCommissionVisibilityMode: e.target.value === "next_day" ? "next_day" : "realtime",
+                  })
+                }
+              >
+                <option value="realtime">Tiempo real (ven lo ganado hoy)</option>
+                <option value="next_day">Al día siguiente (ocultar comisiones de hoy)</option>
+              </select>
+            </div>
           </div>
           <div className="rounded-xl bg-zinc-900/70 p-3 ring-1 ring-white/10">
             <div className="mb-2 text-sm font-semibold">Logo (navbar)</div>
