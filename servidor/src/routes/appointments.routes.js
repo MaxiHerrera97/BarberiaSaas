@@ -2368,6 +2368,118 @@ router.get("/commissions-summary", auth, async (req, res) => {
 });
 
 /**
+ * GET /appointments/owner-year-history?year=2026&branchId=1
+ * PROTEGIDO: solo admin
+ * Historial anual (12 meses) de servicios finalizados para finanzas.
+ */
+router.get("/owner-year-history", auth, async (req, res) => {
+  try {
+    if (String(req.user?.role || "").trim().toLowerCase() !== "admin") {
+      return res.status(403).json({ error: "Solo admin puede ver historial anual" });
+    }
+
+    const now = new Date();
+    const year = Number(req.query?.year) || now.getFullYear();
+    if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+      return res.status(400).json({ error: "year inválido" });
+    }
+    const branchId = req.query.branchId ? Number(req.query.branchId) : null;
+    if (req.query.branchId !== undefined && (!Number.isInteger(branchId) || branchId <= 0)) {
+      return res.status(400).json({ error: "branchId inválido" });
+    }
+
+    const start = `${year}-01-01 00:00:00`;
+    const end = `${year + 1}-01-01 00:00:00`;
+    const branchFilter = branchId ? " AND a.branch_id = :branchId " : "";
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        MONTH(a.start_at) AS month_num,
+        COUNT(*) AS services_done,
+        COALESCE(SUM(COALESCE(a.service_price_ars_snapshot, s.price_ars)), 0) AS revenue_ars,
+        COALESCE(SUM(
+          COALESCE(
+            a.barber_commission_ars_snapshot,
+            ROUND(COALESCE(a.service_price_ars_snapshot, s.price_ars) * COALESCE(b.commission_pct, 0) / 100)
+          )
+        ), 0) AS commission_ars
+      FROM appointments a
+      LEFT JOIN services s ON s.id = a.service_id
+      LEFT JOIN barbers b ON b.id = a.barber_id
+      WHERE a.tenant_id = :tenantId
+        AND a.status = 'done'
+        AND a.start_at >= :start
+        AND a.start_at < :end
+        ${branchFilter}
+      GROUP BY MONTH(a.start_at)
+      ORDER BY MONTH(a.start_at) ASC
+      `,
+      {
+        tenantId: req.tenant.id,
+        start,
+        end,
+        ...(branchId ? { branchId } : {}),
+      }
+    );
+
+    const byMonth = new Map();
+    for (const row of rows) {
+      const month = Number(row.month_num || 0);
+      const servicesDone = Number(row.services_done || 0);
+      const revenueArs = Number(row.revenue_ars || 0);
+      const commissionArs = Number(row.commission_ars || 0);
+      byMonth.set(month, {
+        month,
+        services_done: servicesDone,
+        revenue_ars: revenueArs,
+        commission_ars: commissionArs,
+        owner_net_ars: revenueArs - commissionArs,
+      });
+    }
+
+    const months = [];
+    for (let month = 1; month <= 12; month += 1) {
+      months.push(
+        byMonth.get(month) || {
+          month,
+          services_done: 0,
+          revenue_ars: 0,
+          commission_ars: 0,
+          owner_net_ars: 0,
+        }
+      );
+    }
+
+    const totals = months.reduce(
+      (acc, item) => {
+        acc.services_done += Number(item.services_done || 0);
+        acc.revenue_ars += Number(item.revenue_ars || 0);
+        acc.commission_ars += Number(item.commission_ars || 0);
+        acc.owner_net_ars += Number(item.owner_net_ars || 0);
+        return acc;
+      },
+      {
+        services_done: 0,
+        revenue_ars: 0,
+        commission_ars: 0,
+        owner_net_ars: 0,
+      }
+    );
+
+    return res.json({
+      year,
+      branchScopeId: branchId || 0,
+      months,
+      totals,
+    });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: "Error cargando historial anual" });
+  }
+});
+
+/**
  * POST /appointments/commissions/:barberId/settle
  * PROTEGIDO: solo admin
  * Marca comisión como liquidada para el mes.

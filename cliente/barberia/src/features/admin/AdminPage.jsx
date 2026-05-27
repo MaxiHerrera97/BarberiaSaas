@@ -45,6 +45,24 @@ function formatArs(value) {
   }).format(Number(value || 0));
 }
 
+function monthNameEs(monthNum) {
+  const labels = [
+    "Enero",
+    "Febrero",
+    "Marzo",
+    "Abril",
+    "Mayo",
+    "Junio",
+    "Julio",
+    "Agosto",
+    "Septiembre",
+    "Octubre",
+    "Noviembre",
+    "Diciembre",
+  ];
+  return labels[Number(monthNum || 0) - 1] || `Mes ${monthNum}`;
+}
+
 function parseDateParam(value) {
   const raw = String(value || "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return new Date();
@@ -118,6 +136,10 @@ export default function AdminPage({
   const [commissionLoading, setCommissionLoading] = useState(false);
   const [commissionError, setCommissionError] = useState("");
   const [commissionSavingBarberId, setCommissionSavingBarberId] = useState(0);
+  const [yearHistoryYear, setYearHistoryYear] = useState(() => new Date().getFullYear());
+  const [yearHistory, setYearHistory] = useState(null);
+  const [yearHistoryLoading, setYearHistoryLoading] = useState(false);
+  const [yearHistoryError, setYearHistoryError] = useState("");
 
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -247,6 +269,10 @@ export default function AdminPage({
   const commissionsVisibleNextDay =
     isBarberRole && String(cashSummary?.barberCommission?.visibilityMode || "") === "next_day";
   const canCloseCashDay = Number(dayCashSource?.services_done || 0) > 0;
+  const dayOwnerNetArs =
+    Number(dayCashSource?.revenue_ars || 0) - Number(dayCashSource?.commission_ars || 0);
+  const monthOwnerNetArs =
+    Number(cashSummary?.monthly?.revenue_ars || 0) - Number(cashSummary?.monthly?.commission_ars || 0);
 
   useEffect(() => {
     if (session?.role !== "admin") return;
@@ -274,6 +300,10 @@ export default function AdminPage({
     () => visibleBarbers.map((b) => Number(b.id)).sort((a, b) => a - b).join(","),
     [visibleBarbers]
   );
+  const availableHistoryYears = useMemo(() => {
+    const y = new Date().getFullYear();
+    return Array.from({ length: 7 }, (_, i) => y - 5 + i);
+  }, []);
 
   const apptsByBarber = useMemo(() => {
     const m = new Map();
@@ -467,6 +497,35 @@ export default function AdminPage({
     };
   }, [date, selectedBranchId, session?.role]);
 
+  useEffect(() => {
+    if (session?.role !== "admin") return;
+    let alive = true;
+    async function loadYearHistory() {
+      setYearHistoryLoading(true);
+      setYearHistoryError("");
+      try {
+        const branchQuery =
+          selectedBranchId && selectedBranchId !== "all"
+            ? `&branchId=${selectedBranchId}`
+            : "";
+        const data = await apiFetch(
+          `/appointments/owner-year-history?year=${Number(yearHistoryYear) || new Date().getFullYear()}${branchQuery}`
+        );
+        if (!alive) return;
+        setYearHistory(data || null);
+      } catch (e) {
+        if (!alive) return;
+        setYearHistoryError(e.message || "No se pudo cargar historial anual");
+      } finally {
+        if (alive) setYearHistoryLoading(false);
+      }
+    }
+    loadYearHistory();
+    return () => {
+      alive = false;
+    };
+  }, [yearHistoryYear, selectedBranchId, session?.role]);
+
   async function startMonthlyPayment() {
     if (startingCheckout) return;
     setStartingCheckout(true);
@@ -602,6 +661,7 @@ export default function AdminPage({
     const totals = isMonthly ? cashSummary?.monthly || {} : dayCashSource || {};
     const byBarber = isMonthly ? cashSummary?.byBarberMonth || [] : dayByBarberSource || [];
     const byService = isMonthly ? cashSummary?.byServiceMonth || [] : dayByServiceSource || [];
+    const ownerNetArs = Number(totals?.revenue_ars || 0) - Number(totals?.commission_ars || 0);
 
     if (!byBarber.length && !byService.length && Number(totals?.services_done || 0) <= 0) {
       setCashError("No hay datos de caja para exportar.");
@@ -626,6 +686,7 @@ export default function AdminPage({
       ["Servicios", Number(totals?.services_done || 0), ""],
       ["Facturacion_ARS", Number(totals?.revenue_ars || 0), ""],
       ["Comision_ARS", Number(totals?.commission_ars || 0), ""],
+      ["Ganancia_Dueno_ARS", ownerNetArs, ""],
       [],
       ["Por barbero", "", "", ""],
       ["Barbero", "Servicios", "Facturacion_ARS", "Comision_ARS"],
@@ -885,6 +946,159 @@ export default function AdminPage({
     const w = window.open("", "_blank", "noopener,noreferrer");
     if (!w) {
       setCommissionError("Tu navegador bloqueó la ventana de impresión.");
+      return;
+    }
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+  }
+
+  function exportYearHistoryCsv() {
+    const months = Array.isArray(yearHistory?.months) ? yearHistory.months : [];
+    if (!months.length) {
+      setYearHistoryError("No hay historial anual para exportar.");
+      return;
+    }
+
+    const branchLabel =
+      selectedBranchId && selectedBranchId !== "all"
+        ? activeBranches.find((b) => String(b.id) === String(selectedBranchId))?.name ||
+          `Sucursal ${selectedBranchId}`
+        : "Todas las sucursales";
+    const yearLabel = Number(yearHistory?.year || yearHistoryYear || new Date().getFullYear());
+    const totals = yearHistory?.totals || {};
+
+    const esc = (value) => {
+      const str = String(value ?? "");
+      if (str.includes('"') || str.includes(";") || str.includes("\n")) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    const rows = [
+      ["Reporte", "Historial anual finanzas"],
+      ["Año", yearLabel],
+      ["Sucursal", branchLabel],
+      [],
+      ["Mes", "Servicios", "Facturacion_ARS", "Comision_ARS", "Ganancia_Dueno_ARS"],
+      ...months.map((m) => [
+        monthNameEs(m.month),
+        Number(m.services_done || 0),
+        Number(m.revenue_ars || 0),
+        Number(m.commission_ars || 0),
+        Number(m.owner_net_ars || 0),
+      ]),
+      [],
+      ["Totales", "", "", "", ""],
+      [
+        "Anual",
+        Number(totals.services_done || 0),
+        Number(totals.revenue_ars || 0),
+        Number(totals.commission_ars || 0),
+        Number(totals.owner_net_ars || 0),
+      ],
+    ];
+
+    const csv = rows.map((row) => row.map(esc).join(";")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `historial-anual-${yearLabel}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function exportYearHistoryPdf() {
+    const months = Array.isArray(yearHistory?.months) ? yearHistory.months : [];
+    if (!months.length) {
+      setYearHistoryError("No hay historial anual para exportar.");
+      return;
+    }
+
+    const branchLabel =
+      selectedBranchId && selectedBranchId !== "all"
+        ? activeBranches.find((b) => String(b.id) === String(selectedBranchId))?.name ||
+          `Sucursal ${selectedBranchId}`
+        : "Todas las sucursales";
+    const yearLabel = Number(yearHistory?.year || yearHistoryYear || new Date().getFullYear());
+    const totals = yearHistory?.totals || {};
+
+    const formatMoney = (value) =>
+      new Intl.NumberFormat("es-AR", {
+        style: "currency",
+        currency: "ARS",
+        maximumFractionDigits: 0,
+      }).format(Number(value || 0));
+
+    const tableRows = months
+      .map(
+        (m) => `
+      <tr>
+        <td>${monthNameEs(m.month)}</td>
+        <td style="text-align:right;">${Number(m.services_done || 0)}</td>
+        <td style="text-align:right;">${formatMoney(m.revenue_ars)}</td>
+        <td style="text-align:right;">${formatMoney(m.commission_ars)}</td>
+        <td style="text-align:right;">${formatMoney(m.owner_net_ars)}</td>
+      </tr>`
+      )
+      .join("");
+
+    const html = `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Historial anual ${yearLabel}</title>
+  <style>
+    body { font-family: Arial, sans-serif; color: #111; margin: 24px; }
+    h1 { margin: 0 0 6px; font-size: 20px; }
+    p { margin: 0 0 4px; color: #444; }
+    table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+    th, td { border: 1px solid #ddd; padding: 8px; font-size: 12px; }
+    th { background: #f3f4f6; text-align: left; }
+    .totals { margin-top: 18px; }
+    .totals div { margin: 4px 0; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>Historial anual de finanzas</h1>
+  <p><strong>Año:</strong> ${yearLabel}</p>
+  <p><strong>Sucursal:</strong> ${branchLabel}</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Mes</th>
+        <th>Servicios</th>
+        <th>Facturación</th>
+        <th>Comisión</th>
+        <th>Ganancia dueño</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${tableRows}
+    </tbody>
+  </table>
+
+  <div class="totals">
+    <div><strong>Servicios (año):</strong> ${Number(totals.services_done || 0)}</div>
+    <div><strong>Facturación (año):</strong> ${formatMoney(totals.revenue_ars)}</div>
+    <div><strong>Comisión (año):</strong> ${formatMoney(totals.commission_ars)}</div>
+    <div><strong>Ganancia dueño (año):</strong> ${formatMoney(totals.owner_net_ars)}</div>
+  </div>
+
+  <script>
+    window.onload = () => window.print();
+  </script>
+</body>
+</html>`;
+
+    const w = window.open("", "_blank", "noopener,noreferrer");
+    if (!w) {
+      setYearHistoryError("Tu navegador bloqueó la ventana de impresión.");
       return;
     }
     w.document.open();
@@ -1241,7 +1455,7 @@ export default function AdminPage({
                 <div
                   className={[
                     "mt-2 grid gap-2 text-sm",
-                    isBarberRole ? "grid-cols-2" : "grid-cols-3",
+                    isBarberRole ? "grid-cols-2" : "grid-cols-4",
                   ].join(" ")}
                 >
                   <div>
@@ -1264,6 +1478,14 @@ export default function AdminPage({
                       {cashLoading ? "..." : formatArs(dayCashSource?.commission_ars)}
                     </div>
                   </div>
+                  {!isBarberRole ? (
+                    <div>
+                      <div className="text-zinc-400 text-xs">Ganancia dueño</div>
+                      <div className="font-semibold text-amber-300">
+                        {cashLoading ? "..." : formatArs(dayOwnerNetArs)}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
@@ -1272,7 +1494,7 @@ export default function AdminPage({
                 <div
                   className={[
                     "mt-2 grid gap-2 text-sm",
-                    isBarberRole ? "grid-cols-2" : "grid-cols-3",
+                    isBarberRole ? "grid-cols-2" : "grid-cols-4",
                   ].join(" ")}
                 >
                   <div>
@@ -1295,6 +1517,14 @@ export default function AdminPage({
                       {cashLoading ? "..." : formatArs(cashSummary?.monthly?.commission_ars)}
                     </div>
                   </div>
+                  {!isBarberRole ? (
+                    <div>
+                      <div className="text-zinc-400 text-xs">Ganancia dueño</div>
+                      <div className="font-semibold text-amber-300">
+                        {cashLoading ? "..." : formatArs(monthOwnerNetArs)}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -1501,6 +1731,121 @@ export default function AdminPage({
                           </tr>
                         );
                       })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+
+          {session?.role === "admin" ? (
+            <div className="rounded-2xl border border-white/10 bg-zinc-900/40 p-4">
+              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="text-sm text-zinc-400">Historial anual</div>
+                  <div className="text-base font-semibold text-zinc-100">
+                    Servicios completados y finanzas por mes
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={yearHistoryYear}
+                    onChange={(e) => setYearHistoryYear(Number(e.target.value))}
+                    className="rounded-lg bg-zinc-800 px-2 py-1 text-[11px] font-semibold text-zinc-100 ring-1 ring-white/10"
+                  >
+                    {availableHistoryYears.map((y) => (
+                      <option key={`year-history-${y}`} value={y}>
+                        {y}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={exportYearHistoryCsv}
+                    disabled={yearHistoryLoading}
+                    className="rounded-lg bg-zinc-800 px-2 py-1 text-[11px] font-semibold text-zinc-100 ring-1 ring-white/10 disabled:opacity-60"
+                  >
+                    Exportar CSV anual
+                  </button>
+                  <button
+                    onClick={exportYearHistoryPdf}
+                    disabled={yearHistoryLoading}
+                    className="rounded-lg bg-zinc-800 px-2 py-1 text-[11px] font-semibold text-zinc-100 ring-1 ring-white/10 disabled:opacity-60"
+                  >
+                    Exportar PDF anual
+                  </button>
+                </div>
+              </div>
+
+              {yearHistoryError ? (
+                <div className="mt-3 rounded-xl bg-red-500/10 px-3 py-2 text-xs text-red-200 ring-1 ring-red-500/30">
+                  {yearHistoryError}
+                </div>
+              ) : null}
+
+              <div className="mt-3 grid gap-3 md:grid-cols-4">
+                <div className="rounded-xl bg-zinc-950/60 p-3 ring-1 ring-white/10">
+                  <div className="text-xs text-zinc-400">Servicios (año)</div>
+                  <div className="mt-1 font-semibold text-zinc-100">
+                    {yearHistoryLoading ? "..." : Number(yearHistory?.totals?.services_done || 0)}
+                  </div>
+                </div>
+                <div className="rounded-xl bg-zinc-950/60 p-3 ring-1 ring-white/10">
+                  <div className="text-xs text-zinc-400">Facturación (año)</div>
+                  <div className="mt-1 font-semibold text-emerald-300">
+                    {yearHistoryLoading ? "..." : formatArs(yearHistory?.totals?.revenue_ars)}
+                  </div>
+                </div>
+                <div className="rounded-xl bg-zinc-950/60 p-3 ring-1 ring-white/10">
+                  <div className="text-xs text-zinc-400">Comisión (año)</div>
+                  <div className="mt-1 font-semibold text-cyan-300">
+                    {yearHistoryLoading ? "..." : formatArs(yearHistory?.totals?.commission_ars)}
+                  </div>
+                </div>
+                <div className="rounded-xl bg-zinc-950/60 p-3 ring-1 ring-white/10">
+                  <div className="text-xs text-zinc-400">Ganancia dueño (año)</div>
+                  <div className="mt-1 font-semibold text-amber-300">
+                    {yearHistoryLoading ? "..." : formatArs(yearHistory?.totals?.owner_net_ars)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-3 overflow-x-auto rounded-xl ring-1 ring-white/10">
+                <table className="min-w-[760px] w-full text-xs">
+                  <thead className="bg-white/5 text-zinc-300">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Mes</th>
+                      <th className="px-3 py-2 text-right">Servicios</th>
+                      <th className="px-3 py-2 text-right">Facturación</th>
+                      <th className="px-3 py-2 text-right">Comisión</th>
+                      <th className="px-3 py-2 text-right">Ganancia dueño</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {!yearHistoryLoading &&
+                    !(Array.isArray(yearHistory?.months) ? yearHistory.months.length : 0) ? (
+                      <tr className="border-t border-white/10">
+                        <td colSpan={5} className="px-3 py-3 text-zinc-400">
+                          Sin historial para el período.
+                        </td>
+                      </tr>
+                    ) : (
+                      (Array.isArray(yearHistory?.months) ? yearHistory.months : []).map((m) => (
+                        <tr key={`hist-month-${m.month}`} className="border-t border-white/10">
+                          <td className="px-3 py-2 text-zinc-200">{monthNameEs(m.month)}</td>
+                          <td className="px-3 py-2 text-right text-zinc-300">
+                            {Number(m.services_done || 0)}
+                          </td>
+                          <td className="px-3 py-2 text-right text-emerald-300">
+                            {formatArs(m.revenue_ars)}
+                          </td>
+                          <td className="px-3 py-2 text-right text-cyan-300">
+                            {formatArs(m.commission_ars)}
+                          </td>
+                          <td className="px-3 py-2 text-right text-amber-300">
+                            {formatArs(m.owner_net_ars)}
+                          </td>
+                        </tr>
+                      ))
                     )}
                   </tbody>
                 </table>

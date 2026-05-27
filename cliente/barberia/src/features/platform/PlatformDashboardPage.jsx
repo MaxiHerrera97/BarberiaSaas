@@ -144,6 +144,7 @@ export default function PlatformDashboardPage() {
   const [loadingAudit, setLoadingAudit] = useState(false);
   const [creatingUserTenantId, setCreatingUserTenantId] = useState(0);
   const [newUserByTenant, setNewUserByTenant] = useState({});
+  const [userFormErrorByTenant, setUserFormErrorByTenant] = useState({});
   const [tenantFilter, setTenantFilter] = useState("all");
   const [platformConfig, setPlatformConfig] = useState({
     tenantBaseDomains: ["localhost"],
@@ -678,17 +679,60 @@ export default function PlatformDashboardPage() {
 
   async function createTenantUser(tenant) {
     const draft = newUserByTenant[tenant.id] || {};
+    const role = String(draft.role || "barber")
+      .trim()
+      .toLowerCase();
+    const fullName = String(draft.fullName || "").trim();
+    const username = String(draft.username || "")
+      .trim()
+      .toLowerCase();
+    const password = String(draft.password || "");
+    const barberId =
+      role === "barber" && draft.barberId !== null && draft.barberId !== undefined
+        ? Number(draft.barberId)
+        : null;
+
+    if (!fullName) {
+      setUserFormErrorByTenant((prev) => ({
+        ...prev,
+        [tenant.id]: "Ingresá el nombre completo.",
+      }));
+      return;
+    }
+    if (!/^[a-z0-9_.-]{3,60}$/.test(username)) {
+      setUserFormErrorByTenant((prev) => ({
+        ...prev,
+        [tenant.id]: "Usuario inválido (3-60, minúsculas, números y ._-).",
+      }));
+      return;
+    }
+    if (password.length < 8) {
+      setUserFormErrorByTenant((prev) => ({
+        ...prev,
+        [tenant.id]: "La contraseña debe tener al menos 8 caracteres.",
+      }));
+      return;
+    }
+    if (role === "barber" && (!Number.isInteger(barberId) || barberId <= 0)) {
+      setUserFormErrorByTenant((prev) => ({
+        ...prev,
+        [tenant.id]: "Seleccioná un barbero asociado antes de crear el usuario.",
+      }));
+      return;
+    }
+
     setCreatingUserTenantId(tenant.id);
     setError("");
+    setUserFormErrorByTenant((prev) => ({ ...prev, [tenant.id]: "" }));
     try {
       await platformFetch(`/platform/tenants/${tenant.id}/users`, {
         method: "POST",
         body: {
-          fullName: String(draft.fullName || "").trim(),
-          username: String(draft.username || "").trim().toLowerCase(),
-          role: draft.role || "barber",
-          barberId: draft.role === "barber" ? Number(draft.barberId) : null,
-          password: String(draft.password || ""),
+          fullName,
+          username,
+          role,
+          barberId,
+          password,
         },
       });
 
@@ -704,10 +748,13 @@ export default function PlatformDashboardPage() {
           password: "",
         },
       }));
+      setUserFormErrorByTenant((prev) => ({ ...prev, [tenant.id]: "" }));
       markOk("Usuario creado correctamente");
       refreshAuditOnly();
     } catch (e) {
-      setError(e.message || "No se pudo crear usuario");
+      const msg = e.message || "No se pudo crear usuario";
+      setUserFormErrorByTenant((prev) => ({ ...prev, [tenant.id]: msg }));
+      setError(msg);
     } finally {
       setCreatingUserTenantId(0);
     }
@@ -1473,6 +1520,7 @@ export default function PlatformDashboardPage() {
                         : [];
                       const contact = detail.settings || {};
                       const barbers = Array.isArray(detail.barbers) ? detail.barbers : [];
+                      const activeBarbers = barbers.filter((b) => !!b.is_active);
                       const draft = newUserByTenant[tenant.id] || {
                         fullName: "",
                         username: "",
@@ -1480,6 +1528,7 @@ export default function PlatformDashboardPage() {
                         barberId: "",
                         password: "",
                       };
+                      const userFormError = String(userFormErrorByTenant[tenant.id] || "");
 
                       return (
                         <div className="space-y-4">
@@ -1630,13 +1679,11 @@ export default function PlatformDashboardPage() {
                                 className="rounded bg-zinc-950 px-2 py-1.5 text-xs ring-1 ring-white/10 disabled:opacity-50"
                               >
                                 <option value="">Barbero asociado</option>
-                                {barbers
-                                  .filter((b) => !!b.is_active)
-                                  .map((b) => (
-                                    <option key={b.id} value={b.id}>
-                                      {b.full_name}
-                                    </option>
-                                  ))}
+                                {activeBarbers.map((b) => (
+                                  <option key={b.id} value={b.id}>
+                                    {b.full_name}
+                                  </option>
+                                ))}
                               </select>
                               <input
                                 type="password"
@@ -1653,11 +1700,23 @@ export default function PlatformDashboardPage() {
                             </div>
                             <button
                               onClick={() => createTenantUser(tenant)}
-                              disabled={creatingUserTenantId === tenant.id}
+                              disabled={
+                                creatingUserTenantId === tenant.id ||
+                                (draft.role === "barber" && activeBarbers.length === 0)
+                              }
                               className="mt-2 rounded bg-amber-400 px-3 py-1.5 text-xs font-semibold text-zinc-950 disabled:opacity-50"
                             >
                               {creatingUserTenantId === tenant.id ? "Creando..." : "Crear usuario"}
                             </button>
+                            {draft.role === "barber" && activeBarbers.length === 0 ? (
+                              <div className="mt-2 text-xs text-amber-300">
+                                No hay barberos activos para asociar. Creá o activá un barbero primero
+                                desde el panel administrador de la barbería.
+                              </div>
+                            ) : null}
+                            {userFormError ? (
+                              <div className="mt-2 text-xs text-red-300">{userFormError}</div>
+                            ) : null}
                           </div>
 
                           <div className="grid gap-3 lg:grid-cols-2">
