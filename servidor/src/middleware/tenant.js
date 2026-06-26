@@ -68,7 +68,7 @@ async function resolveTenant(req, res, next) {
     );
 
     if (!rows.length) {
-      return res.status(404).json({ error: "Tenant no existe" });
+      return res.status(404).json({ code: "TENANT_NOT_FOUND", error: "Tenant no existe" });
     }
 
     const tenant = rows[0];

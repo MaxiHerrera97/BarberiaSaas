@@ -131,6 +131,22 @@ function WhatsAppIcon() {
   );
 }
 
+function NotFoundPage() {
+  return (
+    <div className="grid min-h-screen place-items-center bg-zinc-950 px-4 text-zinc-100">
+      <div className="w-full max-w-xl rounded-3xl border border-white/10 bg-zinc-900/60 p-8 text-center shadow-2xl shadow-black/50">
+        <div className="text-6xl">404</div>
+        <h1 className="mt-4 text-2xl font-black uppercase tracking-wide text-zinc-200">
+          Barbería no encontrada
+        </h1>
+        <p className="mt-3 text-zinc-400">
+          Esta barbería ya no está disponible o el enlace es incorrecto.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function SuspendedPage({ message, billing }) {
   const [paying, setPaying] = useState(false);
   const [payError, setPayError] = useState("");
@@ -309,6 +325,7 @@ export default function App() {
     "Comunicate con tu administrador para dar de alta."
   );
   const [tenantSuspendedBilling, setTenantSuspendedBilling] = useState(null);
+  const [tenantNotFound, setTenantNotFound] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -318,6 +335,7 @@ export default function App() {
       setCatalogError("");
       setTenantSuspended(false);
       setTenantSuspendedBilling(null);
+      setTenantNotFound(false);
 
       try {
         const [barbersData, branchesData, servicesData, tenantConfig] = await Promise.all([
@@ -363,6 +381,10 @@ export default function App() {
         );
       } catch (e) {
         if (!alive) return;
+        if (e?.code === "TENANT_NOT_FOUND" || e?.status === 404) {
+          setTenantNotFound(true);
+          return;
+        }
         if (e?.code === "TENANT_SUSPENDED" || e?.status === 403) {
           setTenantSuspended(true);
           setTenantSuspendedMessage(buildSuspendedMessageFromError(e));
@@ -396,6 +418,9 @@ export default function App() {
 
   const authRoute = location.pathname === "/login";
   const platformRoute = location.pathname.startsWith("/platform");
+  if (tenantNotFound && !authRoute && !platformRoute) {
+    return <NotFoundPage />;
+  }
   if (tenantSuspended && !authRoute && !platformRoute) {
     return <SuspendedPage message={tenantSuspendedMessage} billing={tenantSuspendedBilling} />;
   }
@@ -437,6 +462,12 @@ export default function App() {
                 <section className="grid min-h-[60vh] place-items-center px-4">
                   <div className="text-center text-zinc-400">
                     <div className="text-sm font-semibold uppercase tracking-wider">Cargando sitio...</div>
+                  </div>
+                </section>
+              ) : catalogError ? (
+                <section className="grid min-h-[60vh] place-items-center px-4">
+                  <div className="text-center text-zinc-400">
+                    <div className="text-sm">No se pudo cargar el sitio. Intentá de nuevo más tarde.</div>
                   </div>
                 </section>
               ) : (
