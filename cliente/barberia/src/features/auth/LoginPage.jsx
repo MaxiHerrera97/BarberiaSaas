@@ -73,7 +73,7 @@ export default function LoginPage() {
 
             <h1 className="mt-4 text-2xl font-black sm:text-3xl">Ingreso</h1>
             <p className="mt-2 text-sm text-zinc-400">
-              Administrá turnos, agenda y operación diaria de Tu Estilo - Barbería.
+              Administrá turnos, agenda y operación diaria.
             </p>
 
             <form onSubmit={onSubmit} className="mt-6 space-y-4">
