@@ -366,7 +366,7 @@ export default function BookingModal({
   const slots = useMemo(() => {
     if (!service) return [];
     return buildSlots(date, service.durationMin, busyRanges, dayWindows, service.durationMin, minAdvanceBookingHours * 3600000);
-  }, [date, service, busyRanges, dayWindows]);
+  }, [date, service, busyRanges, dayWindows, minAdvanceBookingHours]);
 
   function next() {
     if (step < totalSteps) setStep(step + 1);
