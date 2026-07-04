@@ -154,7 +154,8 @@ async function getTenantConfig(tenantId) {
        barber_commission_visibility_mode,
        theme_bg_main, theme_bg_elevated, theme_bg_soft,
        theme_text_main, theme_text_muted,
-       theme_brand, theme_brand_soft, theme_brand_deep
+       theme_brand, theme_brand_soft, theme_brand_deep,
+       min_advance_booking_hours
      FROM tenant_settings
      WHERE tenant_id = :tenantId
      LIMIT 1`,
@@ -201,6 +202,7 @@ async function getTenantConfig(tenantId) {
           themeBrandSoft: normalizeHexColor(settingsRow.theme_brand_soft, "#F2C879"),
           themeBrandDeep: normalizeHexColor(settingsRow.theme_brand_deep, "#9D6F1D"),
           heroSlides: buildHeroSlidesFromRow(settingsRow),
+          minAdvanceBookingHours: Math.min(Math.max(Number(settingsRow.min_advance_booking_hours || 0), 0), 12),
         }
       : null,
     businessHours: mapBusinessHours(hoursRows),
@@ -303,6 +305,7 @@ router.put("/settings", auth, requireRole("admin"), async (req, res) => {
       themeBrand: normalizeHexColor(req.body?.themeBrand, "#D9A13D"),
       themeBrandSoft: normalizeHexColor(req.body?.themeBrandSoft, "#F2C879"),
       themeBrandDeep: normalizeHexColor(req.body?.themeBrandDeep, "#9D6F1D"),
+      minAdvanceBookingHours: Math.min(Math.max(Number(req.body?.minAdvanceBookingHours || 0), 0), 12),
     };
 
     await pool.query(
@@ -315,7 +318,8 @@ router.put("/settings", auth, requireRole("admin"), async (req, res) => {
          barber_commission_visibility_mode,
          theme_bg_main, theme_bg_elevated, theme_bg_soft,
          theme_text_main, theme_text_muted,
-         theme_brand, theme_brand_soft, theme_brand_deep
+         theme_brand, theme_brand_soft, theme_brand_deep,
+         min_advance_booking_hours
        )
        VALUES
        (
@@ -326,7 +330,8 @@ router.put("/settings", auth, requireRole("admin"), async (req, res) => {
          :barberCommissionVisibilityMode,
          :themeBgMain, :themeBgElevated, :themeBgSoft,
          :themeTextMain, :themeTextMuted,
-         :themeBrand, :themeBrandSoft, :themeBrandDeep
+         :themeBrand, :themeBrandSoft, :themeBrandDeep,
+         :minAdvanceBookingHours
        )
        ON DUPLICATE KEY UPDATE
          brand_name = VALUES(brand_name),
@@ -354,7 +359,8 @@ router.put("/settings", auth, requireRole("admin"), async (req, res) => {
          theme_text_muted = VALUES(theme_text_muted),
          theme_brand = VALUES(theme_brand),
          theme_brand_soft = VALUES(theme_brand_soft),
-         theme_brand_deep = VALUES(theme_brand_deep)`,
+         theme_brand_deep = VALUES(theme_brand_deep),
+         min_advance_booking_hours = VALUES(min_advance_booking_hours)`,
       payload
     );
 

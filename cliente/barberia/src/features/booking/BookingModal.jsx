@@ -85,6 +85,7 @@ export default function BookingModal({
   services,
   contactWhatsapp = "",
   bookingPaymentRequired = false,
+  minAdvanceBookingHours = 0,
 }) {
   const [step, setStep] = useState(1);
 
@@ -364,7 +365,7 @@ export default function BookingModal({
   // ✅ slots dentro de ventanas reales + busy marcado (lo hace buildSlots)
   const slots = useMemo(() => {
     if (!service) return [];
-    return buildSlots(date, service.durationMin, busyRanges, dayWindows);
+    return buildSlots(date, service.durationMin, busyRanges, dayWindows, service.durationMin, minAdvanceBookingHours * 3600000);
   }, [date, service, busyRanges, dayWindows]);
 
   function next() {

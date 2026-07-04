@@ -595,6 +595,32 @@ router.post("/hold", async (req, res) => {
         error: "Fuera del horario disponible del barbero.",
       });
     }
+
+    // ✅ VALIDACIÓN ANTICIPACIÓN MÍNIMA
+    const [[advanceRow]] = await pool.query(
+      `SELECT min_advance_booking_hours FROM tenant_settings WHERE tenant_id = :tenantId LIMIT 1`,
+      { tenantId: req.tenant.id }
+    );
+    const minAdvanceHours = Math.max(0, Number(advanceRow?.min_advance_booking_hours || 0));
+    if (minAdvanceHours > 0) {
+      const tz = req.tenant.timezone || "America/Argentina/Buenos_Aires";
+      const nowParts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: tz,
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit",
+        hour12: false,
+      }).formatToParts(new Date());
+      const get = (type) => (nowParts.find((p) => p.type === type) || {}).value || "00";
+      const nowLocalMs = new Date(
+        `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}:${get("second")}`
+      ).getTime();
+      const slotMs = new Date(String(startAt).trim().replace(" ", "T")).getTime();
+      if (slotMs < nowLocalMs + minAdvanceHours * 3600000) {
+        return res.status(400).json({
+          error: `Los turnos deben reservarse con al menos ${minAdvanceHours} hora${minAdvanceHours !== 1 ? "s" : ""} de anticipación.`,
+        });
+      }
+    }
     const barberBranchId = Number(barberRows[0].branch_id || 0);
     if (branchIdNum && barberBranchId !== branchIdNum) {
       return res.status(400).json({ error: "Ese barbero no pertenece a la sucursal elegida" });

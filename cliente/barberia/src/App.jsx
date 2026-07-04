@@ -318,6 +318,7 @@ export default function App() {
   const [address, setAddress] = useState("");
   const [siteTheme, setSiteTheme] = useState(DEFAULT_SITE_THEME);
   const [bookingPaymentRequired, setBookingPaymentRequired] = useState(false);
+  const [minAdvanceBookingHours, setMinAdvanceBookingHours] = useState(0);
   const [loadingCatalog, setLoadingCatalog] = useState(true);
   const [catalogError, setCatalogError] = useState("");
   const [tenantSuspended, setTenantSuspended] = useState(false);
@@ -370,6 +371,7 @@ export default function App() {
         setAddress(tenantConfig?.settings?.address || "");
         setSiteTheme(buildThemeFromSettings(tenantConfig?.settings || {}));
         setBookingPaymentRequired(tenantConfig?.bookingPayment?.required === true);
+        setMinAdvanceBookingHours(Number(tenantConfig?.settings?.minAdvanceBookingHours || 0));
         const incomingLogoUrl = String(tenantConfig?.settings?.logoUrl || "").trim();
         setLogoUrl(
           incomingLogoUrl
@@ -567,6 +569,7 @@ export default function App() {
         services={services}
         contactWhatsapp={contactWhatsapp}
         bookingPaymentRequired={bookingPaymentRequired}
+        minAdvanceBookingHours={minAdvanceBookingHours}
       />
     </div>
   );

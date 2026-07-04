@@ -114,6 +114,7 @@ export default function AdminSettingsPage() {
     logoUrl: "",
     heroMode: "generic",
     barberCommissionVisibilityMode: "realtime",
+    minAdvanceBookingHours: 0,
     ...DEFAULT_SITE_THEME,
     heroSlides: normalizeHeroSlides(DEFAULT_HERO_SLIDES),
   });
@@ -1000,6 +1001,33 @@ export default function AdminSettingsPage() {
                 <option value="next_day">Al día siguiente (ocultar comisiones de hoy)</option>
               </select>
             </div>
+
+            {/* Anticipación mínima para reservar */}
+            <div className="rounded-xl bg-zinc-900/70 px-3 py-2 ring-1 ring-white/10">
+              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                Anticipación mínima para reservar
+              </div>
+              <p className="mb-2 text-xs text-zinc-500">
+                Los clientes no podrán reservar turnos con menos tiempo de anticipación del indicado.
+              </p>
+              <select
+                className="w-full rounded-lg bg-zinc-950 px-3 py-2 text-sm"
+                value={settings.minAdvanceBookingHours ?? 0}
+                onChange={(e) =>
+                  setSettings({ ...settings, minAdvanceBookingHours: Number(e.target.value) })
+                }
+              >
+                <option value={0}>Sin restricción</option>
+                <option value={1}>1 hora</option>
+                <option value={2}>2 horas</option>
+                <option value={3}>3 horas</option>
+                <option value={4}>4 horas</option>
+                <option value={6}>6 horas</option>
+                <option value={8}>8 horas</option>
+                <option value={12}>12 horas</option>
+              </select>
+            </div>
+
             <div className="rounded-xl bg-zinc-900/70 px-3 py-2 ring-1 ring-white/10 md:col-span-2">
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">

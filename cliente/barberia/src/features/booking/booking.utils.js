@@ -37,7 +37,8 @@ export function buildSlots(
   durationMin,
   busyRanges = [],
   dayWindows = null,
-  slotStepMin = durationMin
+  slotStepMin = durationMin,
+  minAdvanceMs = 0
 ) {
   const base = startOfDay(date);
   const windows = Array.isArray(dayWindows) ? dayWindows : [];
@@ -46,6 +47,7 @@ export function buildSlots(
   if (!windows.length) return []; // domingo cerrado
   if (!slotStepMin || slotStepMin <= 0) return [];
 
+  const cutoffMs = minAdvanceMs > 0 ? Date.now() + minAdvanceMs : 0;
   const slots = [];
 
   for (const w of windows) {
@@ -61,7 +63,8 @@ export function buildSlots(
       // si el slot se pasa del horario de cierre, no lo agregamos
       if (nxt > end) break;
 
-      const busy = busyRanges.some((r) => overlaps(cur, nxt, r.start, r.end));
+      const tooSoon = cutoffMs > 0 && cur.getTime() < cutoffMs;
+      const busy = tooSoon || busyRanges.some((r) => overlaps(cur, nxt, r.start, r.end));
 
       slots.push({
         start: new Date(cur),
